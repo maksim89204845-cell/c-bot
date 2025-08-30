@@ -43,6 +43,6 @@ python main.py
 
 ## Требования
 
-- Python 3.7+
-- aiogram 2.25.1
+- Python 3.8+
+- aiogram 3.4.1
 - python-dotenv 1.0.0
