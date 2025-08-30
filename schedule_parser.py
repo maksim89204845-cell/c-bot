@@ -120,7 +120,31 @@ class ScheduleParser:
                 lesson_time = f"{hour}:{minute}"
                 logging.info(f"✅ Найдено время в уроке: {lesson_time}")
                 
-                # Если есть дата, создаем запись
+                # Если нет даты, используем первую найденную или создаем временную
+                if not current_date:
+                    # Ищем дату в следующих строках или используем первую из расписания
+                    for j in range(1, 10):  # Проверяем следующие 10 строк
+                        if i + j < len(lines):
+                            next_line = lines[i + j].strip()
+                            date_in_next = re.search(r'(\d{2}\.\d{2}\.\d{4})', next_line)
+                            if date_in_next:
+                                current_date = date_in_next.group(1)
+                                if current_date not in schedule:
+                                    schedule[current_date] = {}
+                                logging.info(f"🔍 Найдена дата в следующих строках: {current_date}")
+                                break
+                    
+                    # Если дата все еще не найдена, используем первую доступную
+                    if not current_date and schedule:
+                        current_date = list(schedule.keys())[0]
+                        logging.info(f"🔍 Использую первую доступную дату: {current_date}")
+                    elif not current_date:
+                        # Создаем временную дату для первого дня
+                        current_date = "01.09.2025"  # По умолчанию
+                        schedule[current_date] = {}
+                        logging.info(f"🔍 Создаю временную дату: {current_date}")
+                
+                # Теперь у нас есть дата, создаем запись
                 if current_date:
                     if lesson_time not in schedule[current_date]:
                         schedule[current_date][lesson_time] = {
