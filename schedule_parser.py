@@ -84,6 +84,7 @@ class ScheduleParser:
         
         # Разбиваем текст на строки
         lines = text.split('\n')
+        logging.info(f"Всего строк: {len(lines)}")
         
         current_date = None
         current_main_time = None
@@ -94,12 +95,14 @@ class ScheduleParser:
             if not line:
                 continue
                 
+            logging.info(f"=== Обрабатываю строку {i+1}: '{line}' ===")
+            
             # Ищем дату (формат: DD.MM.YYYY)
             date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', line)
             if date_match:
                 current_date = date_match.group(1)
                 schedule[current_date] = {}
-                logging.info(f"Найдена дата: {current_date}")
+                logging.info(f"✅ Найдена дата: {current_date}")
                 continue
             
             # Ищем основное время (формат: HH:MM - HH:MM)
@@ -107,7 +110,7 @@ class ScheduleParser:
             if main_time_match:
                 start_hour, start_min, end_hour, end_min = main_time_match.groups()
                 current_main_time = f"{start_hour}:{start_min}-{end_hour}:{end_min}"
-                logging.info(f"Найдено основное время: {current_main_time}")
+                logging.info(f"✅ Найдено основное время: {current_main_time}")
                 continue
             
             # Ищем время в уроке (формат: HH-MM) - это приоритет!
@@ -115,7 +118,7 @@ class ScheduleParser:
             if lesson_time_match:
                 hour, minute = lesson_time_match.groups()
                 lesson_time = f"{hour}:{minute}"
-                logging.info(f"Найдено время в уроке: {lesson_time}")
+                logging.info(f"✅ Найдено время в уроке: {lesson_time}")
                 
                 # Если есть дата, создаем запись
                 if current_date:
@@ -125,33 +128,40 @@ class ScheduleParser:
                             'instructor': '',
                             'auditorium': ''
                         }
+                        logging.info(f"📝 Создана запись для времени {lesson_time}")
                     
                     # Извлекаем предмет (убираем время из начала)
                     subject = line.replace(f"{hour}-{minute}", "").strip()
                     schedule[current_date][lesson_time]['subject'] = subject
-                    logging.info(f"Извлечен предмет: '{subject}'")
+                    logging.info(f"📚 Извлечен предмет: '{subject}'")
                     
                     # Следующие строки должны содержать преподавателя и аудиторию
                     # Проверяем следующие 2 строки
                     for j in range(1, 3):
                         if i + j < len(lines):
                             next_line = lines[i + j].strip()
+                            logging.info(f"🔍 Проверяю строку {i+j+1}: '{next_line}'")
+                            
                             if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
                                 # Это либо преподаватель, либо аудитория
                                 if not schedule[current_date][lesson_time]['instructor']:
                                     schedule[current_date][lesson_time]['instructor'] = next_line
-                                    logging.info(f"Извлечен преподаватель: '{next_line}'")
+                                    logging.info(f"👨‍🏫 Извлечен преподаватель: '{next_line}'")
                                 elif not schedule[current_date][lesson_time]['auditorium']:
                                     schedule[current_date][lesson_time]['auditorium'] = next_line
-                                    logging.info(f"Извлечена аудитория: '{next_line}'")
+                                    logging.info(f"🏢 Извлечена аудитория: '{next_line}'")
                                     break
+                            else:
+                                logging.info(f"❌ Строка {i+j+1} не подходит для преподавателя/аудитории")
+                        else:
+                            logging.info(f"❌ Строка {i+j+1} выходит за пределы")
                 
                 continue
             
             # Если нет времени в уроке, но есть основное время и дата
             if current_date and current_main_time and '302' in line and not re.search(r'\d{2}-\d{2}', line):
                 # Это может быть потоковое занятие без времени в уроке
-                logging.info(f"Найдена строка с 302 без времени: {line}")
+                logging.info(f"🔄 Найдена строка с 302 без времени: {line}")
                 
                 # Создаем запись с основным временем
                 if current_main_time not in schedule[current_date]:
@@ -160,26 +170,33 @@ class ScheduleParser:
                         'instructor': '',
                         'auditorium': ''
                     }
+                    logging.info(f"📝 Создана запись для основного времени {current_main_time}")
                 
                 # Извлекаем предмет
                 subject = line.replace('302', '').strip()
                 schedule[current_date][current_main_time]['subject'] = subject
-                logging.info(f"Извлечен предмет (потоковый): '{subject}'")
+                logging.info(f"📚 Извлечен предмет (потоковый): '{subject}'")
                 
                 # Следующие строки - преподаватель и аудитория
                 for j in range(1, 3):
                     if i + j < len(lines):
                         next_line = lines[i + j].strip()
+                        logging.info(f"🔍 Проверяю строку {i+j+1} для потокового: '{next_line}'")
+                        
                         if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
                             if not schedule[current_date][current_main_time]['instructor']:
                                 schedule[current_date][current_main_time]['instructor'] = next_line
-                                logging.info(f"Извлечен преподаватель (потоковый): '{next_line}'")
+                                logging.info(f"👨‍🏫 Извлечен преподаватель (потоковый): '{next_line}'")
                             elif not schedule[current_date][current_main_time]['auditorium']:
                                 schedule[current_date][current_main_time]['auditorium'] = next_line
-                                logging.info(f"Извлечена аудитория (потоковый): '{next_line}'")
+                                logging.info(f"🏢 Извлечена аудитория (потоковый): '{next_line}'")
                                 break
+                        else:
+                            logging.info(f"❌ Строка {i+j+1} не подходит для потокового")
+                    else:
+                        logging.info(f"❌ Строка {i+j+1} выходит за пределы для потокового")
         
-        logging.info(f"Итоговое расписание: {schedule}")
+        logging.info(f"📊 Итоговое расписание: {schedule}")
         logging.info(f"=== КОНЕЦ ОТЛАДКИ ===")
         return schedule
     
