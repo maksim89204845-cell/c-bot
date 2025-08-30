@@ -1,13 +1,26 @@
 import os
-import logging
 import asyncio
+import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.types import Message
 from schedule_parser import ScheduleParser
 from datetime import datetime, timedelta
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+def run_flask():
+    """Запускает Flask в отдельном потоке"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 # Настройка логирования
+import logging
 logging.basicConfig(level=logging.INFO)
 
 # Получение токена бота
@@ -124,8 +137,18 @@ async def update_schedule(message: Message):
 # ========================================
 
 async def main():
-    # Запуск бота
-    await dp.start_polling(bot)
+    """Основная функция запуска бота"""
+    try:
+        # Запускаем бота
+        await dp.start_polling(bot)
+    except Exception as e:
+        logging.error(f"Ошибка запуска бота: {e}")
 
 if __name__ == '__main__':
+    # Запускаем Flask в отдельном потоке для Render
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
+    
+    # Запускаем бота в основном потоке
     asyncio.run(main())
