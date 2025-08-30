@@ -1,9 +1,7 @@
 import os
 import logging
-import asyncio
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, types, executor
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -13,7 +11,8 @@ BOT_TOKEN = os.getenv('BOT_TOKEN', '8380069376:AAEB7UesvgxymReqmnQTIvIMNABB5_6N_
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher()
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
 # ========================================
 # ЗДЕСЬ БУДЕТ КОД ДЛЯ ПАРСИНГА РАСПИСАНИЯ
@@ -23,13 +22,13 @@ dp = Dispatcher()
 # 3. Функция для парсинга расписания (дата, время, предмет, преподаватель, аудитория)
 # ========================================
 
-@dp.message(Command("start"))
-async def send_welcome(message: Message):
+@dp.message_handler(commands=['start'])
+async def send_welcome(message: types.Message):
     """Обработчик команды /start"""
     await message.reply("Привет, я бот для расписания!")
 
-@dp.message(Command("ping"))
-async def send_pong(message: Message):
+@dp.message_handler(commands=['ping'])
+async def send_pong(message: types.Message):
     """Обработчик команды /ping"""
     await message.reply("pong")
 
@@ -42,9 +41,6 @@ async def send_pong(message: Message):
 # /schedule_week - показать расписание на неделю
 # ========================================
 
-async def main():
-    # Запуск бота
-    await dp.start_polling(bot)
-
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Запуск бота
+    executor.start_polling(dp, skip_updates=True)
