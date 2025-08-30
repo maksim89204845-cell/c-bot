@@ -8,4 +8,4 @@ services:
     envVars:
       - key: BOT_TOKEN
         value: 8380069376:AAEB7UesvgxymReqmnQTIvIMNABB5_6N_gc
-    pythonVersion: "3.10"
+    pythonVersion: "3.9"
