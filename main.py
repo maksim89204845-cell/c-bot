@@ -87,11 +87,17 @@ async def send_week_schedule(message: Message):
         schedule = schedule_parser.get_schedule_for_week()
         
         if schedule:
-            message_text = schedule_parser.format_schedule_message(schedule)
+            # Используем новую функцию для разбивки сообщений
+            messages = schedule_parser.format_week_schedule_messages(schedule)
+            
+            # Отправляем каждое сообщение отдельно
+            for i, msg in enumerate(messages):
+                if i == 0:
+                    await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
+                else:
+                    await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
         else:
-            message_text = "📅 Расписание на неделю не найдено."
-        
-        await message.reply(message_text)
+            await message.reply("📅 Расписание на неделю не найдено.")
     except Exception as e:
         await message.reply(f"❌ Ошибка при получении расписания: {str(e)}")
 

@@ -154,3 +154,57 @@ class ScheduleParser:
             message += f"\n🔄 Последнее обновление: {self.last_update.strftime('%d.%m.%Y %H:%M')}"
         
         return message
+    
+    def split_long_message(self, message: str, max_length: int = 4000) -> List[str]:
+        """Разбивает длинное сообщение на части"""
+        if len(message) <= max_length:
+            return [message]
+        
+        parts = []
+        lines = message.split('\n')
+        current_part = ""
+        
+        for line in lines:
+            if len(current_part + line + '\n') > max_length:
+                if current_part:
+                    parts.append(current_part.strip())
+                    current_part = line + '\n'
+                else:
+                    # Одна строка слишком длинная
+                    parts.append(line[:max_length-3] + "...")
+            else:
+                current_part += line + '\n'
+        
+        if current_part:
+            parts.append(current_part.strip())
+        
+        return parts
+    
+    def format_week_schedule_messages(self, schedule: Dict) -> List[str]:
+        """Форматирует расписание на неделю с разбивкой на сообщения"""
+        if not schedule:
+            return ["📅 Расписание на неделю не найдено."]
+        
+        # Создаем отдельное сообщение для каждого дня
+        messages = []
+        
+        for date, day_schedule in schedule.items():
+            day_message = f"📅 Расписание на {date}:\n\n"
+            
+            for time, lesson in day_schedule.items():
+                if lesson.get('subject'):
+                    day_message += f"🕐 {time}\n"
+                    day_message += f"📚 {lesson['subject']}\n"
+                    day_message += f"👨‍🏫 {lesson['instructor']}\n"
+                    day_message += f"🏢 {lesson['auditorium']}\n"
+                    day_message += "─" * 30 + "\n"
+                else:
+                    day_message += f"🕐 {time} - Аудит.\n"
+                    day_message += "─" * 30 + "\n"
+            
+            if self.last_update:
+                day_message += f"\n🔄 Обновлено: {self.last_update.strftime('%d.%m.%Y %H:%M')}"
+            
+            messages.append(day_message)
+        
+        return messages
