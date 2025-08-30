@@ -34,30 +34,30 @@ class ScheduleParser:
             return None
     
     def extract_text_from_pdf(self, pdf_content: bytes) -> str:
-        """Извлекает текст из PDF по страницам и находит страницу с группой 302Ф"""
+        """Извлекает текст из PDF по страницам и находит страницу с группой 302 Ф"""
         try:
             pdf_file = io.BytesIO(pdf_content)
             reader = PyPDF2.PdfReader(pdf_file)
             
             logging.info(f"PDF содержит {len(reader.pages)} страниц")
             
-            # Ищем страницу с группой 302Ф
+            # Ищем страницу с группой 302 Ф (с пробелом!)
             target_page = None
             for page_num in range(len(reader.pages)):
                 page = reader.pages[page_num]
                 page_text = page.extract_text()
                 
-                logging.info(f"Страница {page_num + 1}: ищу группу 302Ф...")
+                logging.info(f"Страница {page_num + 1}: ищу группу 302 Ф...")
                 
-                if "302Ф" in page_text:
-                    logging.info(f"✅ Группа 302Ф найдена на странице {page_num + 1}")
+                if "302 Ф" in page_text:
+                    logging.info(f"✅ Группа 302 Ф найдена на странице {page_num + 1}")
                     target_page = page_num
                     break
                 else:
-                    logging.info(f"❌ Группа 302Ф НЕ найдена на странице {page_num + 1}")
+                    logging.info(f"❌ Группа 302 Ф НЕ найдена на странице {page_num + 1}")
             
             if target_page is None:
-                logging.error("❌ Группа 302Ф не найдена ни на одной странице!")
+                logging.error("❌ Группа 302 Ф не найдена ни на одной странице!")
                 return ""
             
             # Извлекаем текст только с нужной страницы
@@ -114,7 +114,7 @@ class ScheduleParser:
                     logging.info(f"Найдено время: {current_time} для даты {current_date}")
                 continue
             
-            # Ищем информацию о занятии для группы 302Ф
+            # Ищем информацию о занятии для группы 302 Ф
             if current_date and current_time and '302' in line:
                 logging.info(f"Найдена строка с 302: {line}")
                 # Извлекаем предмет, преподавателя и аудиторию
