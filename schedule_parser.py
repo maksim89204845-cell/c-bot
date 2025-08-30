@@ -44,6 +44,12 @@ class ScheduleParser:
         """Парсит расписание из текста"""
         schedule = {}
         
+        # Отладочная информация
+        print(f"=== ОТЛАДКА ПАРСИНГА ===")
+        print(f"Длина текста: {len(text)}")
+        print(f"Первые 500 символов: {text[:500]}")
+        print(f"=== КОНЕЦ ОТЛАДКИ ===")
+        
         # Разбиваем текст на строки
         lines = text.split('\n')
         
@@ -60,6 +66,7 @@ class ScheduleParser:
             if date_match:
                 current_date = date_match.group(1)
                 schedule[current_date] = {}
+                print(f"Найдена дата: {current_date}")
                 continue
             
             # Ищем время (формат: HH:MM-HH:MM)
@@ -72,10 +79,12 @@ class ScheduleParser:
                         'instructor': '',
                         'auditorium': ''
                     }
+                    print(f"Найдено время: {current_time} для даты {current_date}")
                 continue
             
             # Ищем информацию о занятии для группы 302Ф
             if current_date and current_time and '302' in line:
+                print(f"Найдена строка с 302: {line}")
                 # Извлекаем предмет, преподавателя и аудиторию
                 parts = line.split()
                 if len(parts) >= 3:
@@ -84,7 +93,9 @@ class ScheduleParser:
                         'instructor': parts[-2],
                         'auditorium': parts[-1]
                     }
+                    print(f"Извлечено: предмет={parts[:-2]}, преподаватель={parts[-2]}, аудитория={parts[-1]}")
         
+        print(f"Итоговое расписание: {schedule}")
         return schedule
     
     def get_schedule_for_date(self, target_date: str) -> Dict:
