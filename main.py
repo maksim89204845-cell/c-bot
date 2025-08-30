@@ -97,21 +97,34 @@ async def send_tomorrow_schedule(message: Message):
 async def send_week_schedule(message: Message):
     """Показывает расписание на неделю"""
     try:
+        logging.info("=== НАЧАЛО КОМАНДЫ /schedule_week ===")
+        await message.reply("🔄 Получаю расписание на неделю...")
+        
+        logging.info("Вызываю get_schedule_for_week()...")
         schedule = schedule_parser.get_schedule_for_week()
+        logging.info(f"Получено расписание: {schedule}")
         
         if schedule:
+            logging.info("Расписание найдено, форматирую сообщения...")
             # Используем новую функцию для разбивки сообщений
             messages = schedule_parser.format_week_schedule_messages(schedule)
+            logging.info(f"Создано {len(messages)} сообщений")
             
             # Отправляем каждое сообщение отдельно
             for i, msg in enumerate(messages):
+                logging.info(f"Отправляю сообщение {i+1} из {len(messages)}")
                 if i == 0:
                     await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
                 else:
                     await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
+                logging.info(f"Сообщение {i+1} отправлено")
         else:
+            logging.info("Расписание не найдено")
             await message.reply("📅 Расписание на неделю не найдено.")
+        
+        logging.info("=== КОНЕЦ КОМАНДЫ /schedule_week ===")
     except Exception as e:
+        logging.error(f"❌ Ошибка в /schedule_week: {str(e)}")
         await message.reply(f"❌ Ошибка при получении расписания: {str(e)}")
 
 @dp.message(Command("update_schedule"))
