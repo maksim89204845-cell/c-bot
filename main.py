@@ -6,6 +6,13 @@ from typing import Dict, List, Optional
 import threading
 from flask import Flask, request, jsonify
 
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Импорты для telebot (pyTelegramBotAPI)
 try:
     import telebot
@@ -16,13 +23,6 @@ except ImportError as e:
     logging.error(f"❌ Ошибка импорта pyTelegramBotAPI: {e}")
     logging.error("Установите: pip install pyTelegramBotAPI==4.14.0")
     exit(1)
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Инициализация Flask для Render.com
 app = Flask(__name__)
