@@ -3,9 +3,19 @@ import logging
 from datetime import datetime, timedelta
 import json
 from typing import Dict, List, Optional
-import asyncio
 import threading
 from flask import Flask, request, jsonify
+
+# Импорты для telebot (pyTelegramBotAPI)
+try:
+    import telebot
+    from telebot import TeleBot
+    from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, CallbackQuery
+    logger.info(f"✅ pyTelegramBotAPI успешно импортирован")
+except ImportError as e:
+    logging.error(f"❌ Ошибка импорта pyTelegramBotAPI: {e}")
+    logging.error("Установите: pip install pyTelegramBotAPI==4.14.0")
+    exit(1)
 
 # Настройка логирования
 logging.basicConfig(
@@ -13,17 +23,6 @@ logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-# Импорты для python-telegram-bot 12.x
-try:
-    import telegram
-    from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
-    logger.info(f"✅ python-telegram-bot версии {telegram.__version__} успешно импортирован")
-except ImportError as e:
-    logger.error(f"❌ Ошибка импорта python-telegram-bot: {e}")
-    logger.error("Установите: pip install python-telegram-bot>=12.0,<13.0")
-    exit(1)
 
 # Инициализация Flask для Render.com
 app = Flask(__name__)
@@ -36,8 +35,8 @@ def run_flask():
     """Запускает Flask в отдельном потоке"""
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
 
-# Состояния для ConversationHandler
-WAITING_FOR_SCHEDULE_TYPE, WAITING_FOR_STUDY_SCHEDULE, WAITING_FOR_WORK_SCHEDULE = range(3)
+# Состояния для бота
+user_states = {}  # user_id -> state
 
 class ScheduleManager:
     """Менеджер расписания пользователя"""
@@ -170,35 +169,39 @@ if not BOT_TOKEN:
     logger.error("❌ BOT_TOKEN не найден в переменных окружения!")
     exit(1)
 
+# Инициализация бота
+bot = TeleBot(BOT_TOKEN)
+
 # Клавиатуры
 def get_main_keyboard() -> InlineKeyboardMarkup:
     """Главная клавиатура"""
-    keyboard = [
-        [
-            InlineKeyboardButton("📚 Добавить учебное", callback_data="add_study"),
-            InlineKeyboardButton("💼 Добавить рабочее", callback_data="add_work")
-        ],
-        [
-            InlineKeyboardButton("📊 Мои расписания", callback_data="my_schedules"),
-            InlineKeyboardButton("🔍 Анализ", callback_data="analyze")
-        ],
-        [
-            InlineKeyboardButton("🎤 Голосовое сообщение", callback_data="voice_input"),
-            InlineKeyboardButton("❓ Помощь", callback_data="help")
-        ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton("📚 Добавить учебное", callback_data="add_study"),
+        InlineKeyboardButton("💼 Добавить рабочее", callback_data="add_work")
+    )
+    keyboard.add(
+        InlineKeyboardButton("📊 Мои расписания", callback_data="my_schedules"),
+        InlineKeyboardButton("🔍 Анализ", callback_data="analyze")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🎤 Голосовое сообщение", callback_data="voice_input"),
+        InlineKeyboardButton("❓ Помощь", callback_data="help")
+    )
+    return keyboard
 
 def get_back_keyboard() -> InlineKeyboardMarkup:
     """Клавиатура с кнопкой "Назад" """
-    keyboard = [[InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main")]]
-    return InlineKeyboardMarkup(keyboard)
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+    return keyboard
 
 # Обработчики команд
-def cmd_start(update, context):
+@bot.message_handler(commands=['start'])
+def cmd_start(message: Message):
     """Обработчик команды /start"""
-    user_id = update.effective_user.id
-    user_name = update.effective_user.first_name
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name
     
     welcome_text = f"""
 👋 Привет, {user_name}!
@@ -215,10 +218,11 @@ def cmd_start(update, context):
 Выберите действие:
 """
     
-    update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
+    bot.reply_to(message, welcome_text, reply_markup=get_main_keyboard())
     logger.info(f"🚀 Пользователь {user_id} запустил бота")
 
-def cmd_help(update, context):
+@bot.message_handler(commands=['help'])
+def cmd_help(message: Message):
     """Обработчик команды /help"""
     help_text = """
 ❓ **Как пользоваться ботом:**
@@ -237,85 +241,25 @@ def cmd_help(update, context):
 Бот запомнит все и поможет вам лучше планировать время! ⏰
 """
     
-    update.message.reply_text(help_text, reply_markup=get_back_keyboard())
+    bot.reply_to(message, help_text, reply_markup=get_back_keyboard())
 
-def cmd_ping(update, context):
+@bot.message_handler(commands=['ping'])
+def cmd_ping(message: Message):
     """Обработчик команды /ping"""
-    update.message.reply_text("🏓 pong")
-    logger.info(f"🏓 Пинг от пользователя {update.effective_user.id}")
-
-# Обработчики состояний
-def add_study_start(update, context):
-    """Начало добавления учебного расписания"""
-    update.callback_query.answer()
-    update.callback_query.edit_message_text(
-        "📚 **Добавление учебного расписания**\n\n"
-        "Введите ваше учебное расписание:\n"
-        "• День недели\n"
-        "• Время\n"
-        "• Предмет\n"
-        "• Аудитория\n\n"
-        "Пример: 'Понедельник 9:00 - Математика, аудитория 101'",
-        reply_markup=get_back_keyboard()
-    )
-    return WAITING_FOR_STUDY_SCHEDULE
-
-def add_work_start(update, context):
-    """Начало добавления рабочего расписания"""
-    update.callback_query.answer()
-    update.callback_query.edit_message_text(
-        "💼 **Добавление рабочего расписания**\n\n"
-        "Введите ваше рабочее расписание:\n"
-        "• Задачи\n"
-        "• Встречи\n"
-        "• Дедлайны\n"
-        "• Время\n\n"
-        "Пример: 'Вторник 14:00 - Встреча с клиентом, подготовить отчет'",
-        reply_markup=get_back_keyboard()
-    )
-    return WAITING_FOR_WORK_SCHEDULE
-
-def process_study_schedule(update, context):
-    """Обработчик учебного расписания"""
-    user_id = update.effective_user.id
-    schedule_text = update.message.text
-    
-    result = schedule_manager.add_study_schedule(user_id, schedule_text)
-    update.message.reply_text(result, reply_markup=get_main_keyboard())
-    
-    logger.info(f"📚 Пользователь {user_id} добавил учебное расписание")
-    return ConversationHandler.END
-
-def process_work_schedule(update, context):
-    """Обработчик рабочего расписания"""
-    user_id = update.effective_user.id
-    schedule_text = update.message.text
-    
-    result = schedule_manager.add_work_schedule(user_id, schedule_text)
-    update.message.reply_text(result, reply_markup=get_main_keyboard())
-    
-    logger.info(f"💼 Пользователь {user_id} добавил рабочее расписание")
-    return ConversationHandler.END
-
-def cancel(update, context):
-    """Отмена операции"""
-    update.callback_query.answer()
-    update.callback_query.edit_message_text(
-        "🏠 **Главное меню**\n\n"
-        "Выберите действие:",
-        reply_markup=get_main_keyboard()
-    )
-    return ConversationHandler.END
+    bot.reply_to(message, "🏓 pong")
+    logger.info(f"🏓 Пинг от пользователя {message.from_user.id}")
 
 # Обработчик голосовых сообщений
-def process_voice(update, context):
+@bot.message_handler(content_types=['voice'])
+def process_voice(message: Message):
     """Обработчик голосовых сообщений"""
-    user_id = update.effective_user.id
+    user_id = message.from_user.id
     
     # В реальном боте здесь была бы обработка голоса через speech-to-text
     # Пока просто предлагаем переписать текстом
     
-    update.message.reply_text(
+    bot.reply_to(
+        message,
         "🎤 Голосовое сообщение получено!\n\n"
         "К сожалению, пока не могу распознать голос. "
         "Пожалуйста, напишите расписание текстом или выберите тип:",
@@ -324,22 +268,82 @@ def process_voice(update, context):
     
     logger.info(f"🎤 Пользователь {user_id} отправил голосовое сообщение")
 
+# Обработчик текстовых сообщений для добавления расписания
+@bot.message_handler(func=lambda message: True)
+def handle_text(message: Message):
+    """Обработчик текстовых сообщений"""
+    user_id = message.from_user.id
+    
+    if user_id in user_states:
+        state = user_states[user_id]
+        
+        if state == 'waiting_for_study':
+            result = schedule_manager.add_study_schedule(user_id, message.text)
+            bot.reply_to(message, result, reply_markup=get_main_keyboard())
+            del user_states[user_id]
+            logger.info(f"📚 Пользователь {user_id} добавил учебное расписание")
+            
+        elif state == 'waiting_for_work':
+            result = schedule_manager.add_work_schedule(user_id, message.text)
+            bot.reply_to(message, result, reply_markup=get_main_keyboard())
+            del user_states[user_id]
+            logger.info(f"💼 Пользователь {user_id} добавил рабочее расписание")
+            
+        else:
+            del user_states[user_id]
+            bot.reply_to(message, "❌ Неизвестное состояние. Попробуйте снова.", reply_markup=get_main_keyboard())
+
 # Обработчик callback-запросов
-def process_callback(update, context):
+@bot.callback_query_handler(func=lambda call: True)
+def process_callback(call: CallbackQuery):
     """Обработчик нажатий на кнопки"""
-    user_id = update.effective_user.id
-    data = update.callback_query.data
+    user_id = call.from_user.id
+    data = call.data
     
-    update.callback_query.answer()
+    bot.answer_callback_query(call.id)
     
-    if data == "my_schedules":
+    if data == "add_study":
+        user_states[user_id] = 'waiting_for_study'
+        bot.edit_message_text(
+            "📚 **Добавление учебного расписания**\n\n"
+            "Введите ваше учебное расписание:\n"
+            "• День недели\n"
+            "• Время\n"
+            "• Предмет\n"
+            "• Аудитория\n\n"
+            "Пример: 'Понедельник 9:00 - Математика, аудитория 101'",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"📚 Пользователь {user_id} выбрал добавление учебного расписания")
+    
+    elif data == "add_work":
+        user_states[user_id] = 'waiting_for_work'
+        bot.edit_message_text(
+            "💼 **Добавление рабочего расписания**\n\n"
+            "Введите ваше рабочее расписание:\n"
+            "• Задачи\n"
+            "• Встречи\n"
+            "• Дедлайны\n"
+            "• Время\n\n"
+            "Пример: 'Вторник 14:00 - Встреча с клиентом, подготовить отчет'",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"💼 Пользователь {user_id} выбрал добавление рабочего расписания")
+    
+    elif data == "my_schedules":
         user_schedules = schedule_manager.get_user_schedules(user_id)
         
         if not user_schedules['study'] and not user_schedules['work']:
-            update.callback_query.edit_message_text(
+            bot.edit_message_text(
                 "📝 **Ваши расписания**\n\n"
                 "У вас пока нет добавленных расписаний.\n\n"
                 "Добавьте первое расписание!",
+                call.message.chat.id,
+                call.message.message_id,
                 reply_markup=get_back_keyboard()
             )
         else:
@@ -356,8 +360,10 @@ def process_callback(update, context):
                 for item in user_schedules['work']:
                     schedules_text += f"• ID {item['id']}: {item['text']}\n"
             
-            update.callback_query.edit_message_text(
+            bot.edit_message_text(
                 schedules_text,
+                call.message.chat.id,
+                call.message.message_id,
                 reply_markup=get_back_keyboard()
             )
         
@@ -365,17 +371,21 @@ def process_callback(update, context):
     
     elif data == "analyze":
         analysis = schedule_manager.analyze_schedule(user_id)
-        update.callback_query.edit_message_text(
+        bot.edit_message_text(
             analysis,
+            call.message.chat.id,
+            call.message.message_id,
             reply_markup=get_back_keyboard()
         )
         logger.info(f"🔍 Пользователь {user_id} запросил анализ расписания")
     
     elif data == "voice_input":
-        update.callback_query.edit_message_text(
+        bot.edit_message_text(
             "🎤 **Голосовое сообщение**\n\n"
             "Отправьте голосовое сообщение с вашим расписанием.\n\n"
             "Пока что я не могу распознавать голос, но в будущем это будет доступно!",
+            call.message.chat.id,
+            call.message.message_id,
             reply_markup=get_back_keyboard()
         )
         logger.info(f"🎤 Пользователь {user_id} выбрал голосовой ввод")
@@ -397,15 +407,19 @@ def process_callback(update, context):
 
 Бот запомнит все и поможет вам лучше планировать время! ⏰
 """
-        update.callback_query.edit_message_text(
+        bot.edit_message_text(
             help_text,
+            call.message.chat.id,
+            call.message.message_id,
             reply_markup=get_back_keyboard()
         )
     
     elif data == "back_to_main":
-        update.callback_query.edit_message_text(
+        bot.edit_message_text(
             "🏠 **Главное меню**\n\n"
             "Выберите действие:",
+            call.message.chat.id,
+            call.message.message_id,
             reply_markup=get_main_keyboard()
         )
 
@@ -418,45 +432,14 @@ def main():
     flask_thread.start()
     logger.info("🌐 Flask запущен в отдельном потоке")
     
-    # Создаем updater
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
-    
-    # Добавляем обработчики команд
-    dp.add_handler(CommandHandler("start", cmd_start))
-    dp.add_handler(CommandHandler("help", cmd_help))
-    dp.add_handler(CommandHandler("ping", cmd_ping))
-    
-    # Добавляем обработчик голосовых сообщений
-    dp.add_handler(MessageHandler(Filters.voice, process_voice))
-    
-    # Добавляем ConversationHandler для добавления расписания
-    conv_handler = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(add_study_start, pattern="^add_study$"),
-            CallbackQueryHandler(add_work_start, pattern="^add_work$")
-        ],
-        states={
-            WAITING_FOR_STUDY_SCHEDULE: [MessageHandler(Filters.text & ~Filters.command, process_study_schedule)],
-            WAITING_FOR_WORK_SCHEDULE: [MessageHandler(Filters.text & ~Filters.command, process_work_schedule)]
-        },
-        fallbacks=[CallbackQueryHandler(cancel, pattern="^back_to_main$")]
-    )
-    
-    dp.add_handler(conv_handler)
-    
-    # Добавляем обработчик callback-запросов
-    dp.add_handler(CallbackQueryHandler(process_callback))
-    
     # Запускаем бота
     try:
         logger.info("🤖 Бот запущен и готов к работе!")
-        updater.start_polling()
-        updater.idle()
+        bot.polling(none_stop=True)
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
     finally:
-        updater.stop()
+        bot.stop_polling()
 
 if __name__ == '__main__':
     try:
