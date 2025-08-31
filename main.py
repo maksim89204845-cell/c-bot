@@ -7,12 +7,12 @@ import asyncio
 import threading
 from flask import Flask, request, jsonify
 
-# Импорты для python-telegram-bot
+# Импорты для python-telegram-bot 13.x
 try:
     from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
-    from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, ConversationHandler, filters
+    from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
 except ImportError:
-    logging.error("❌ python-telegram-bot не установлен. Установите: pip install python-telegram-bot==20.7")
+    logging.error("❌ python-telegram-bot не установлен. Установите: pip install python-telegram-bot==13.15")
     exit(1)
 
 # Настройка логирования
@@ -192,7 +192,7 @@ def get_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 # Обработчики команд
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def cmd_start(update, context):
     """Обработчик команды /start"""
     user_id = update.effective_user.id
     user_name = update.effective_user.first_name
@@ -212,10 +212,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Выберите действие:
 """
     
-    await update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
+    update.message.reply_text(welcome_text, reply_markup=get_main_keyboard())
     logger.info(f"🚀 Пользователь {user_id} запустил бота")
 
-async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def cmd_help(update, context):
     """Обработчик команды /help"""
     help_text = """
 ❓ **Как пользоваться ботом:**
@@ -234,18 +234,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 Бот запомнит все и поможет вам лучше планировать время! ⏰
 """
     
-    await update.message.reply_text(help_text, reply_markup=get_back_keyboard())
+    update.message.reply_text(help_text, reply_markup=get_back_keyboard())
 
-async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def cmd_ping(update, context):
     """Обработчик команды /ping"""
-    await update.message.reply_text("🏓 pong")
+    update.message.reply_text("🏓 pong")
     logger.info(f"🏓 Пинг от пользователя {update.effective_user.id}")
 
 # Обработчики состояний
-async def add_study_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def add_study_start(update, context):
     """Начало добавления учебного расписания"""
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
+    update.callback_query.answer()
+    update.callback_query.edit_message_text(
         "📚 **Добавление учебного расписания**\n\n"
         "Введите ваше учебное расписание:\n"
         "• День недели\n"
@@ -257,10 +257,10 @@ async def add_study_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_FOR_STUDY_SCHEDULE
 
-async def add_work_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def add_work_start(update, context):
     """Начало добавления рабочего расписания"""
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
+    update.callback_query.answer()
+    update.callback_query.edit_message_text(
         "💼 **Добавление рабочего расписания**\n\n"
         "Введите ваше рабочее расписание:\n"
         "• Задачи\n"
@@ -272,32 +272,32 @@ async def add_work_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return WAITING_FOR_WORK_SCHEDULE
 
-async def process_study_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def process_study_schedule(update, context):
     """Обработчик учебного расписания"""
     user_id = update.effective_user.id
     schedule_text = update.message.text
     
     result = schedule_manager.add_study_schedule(user_id, schedule_text)
-    await update.message.reply_text(result, reply_markup=get_main_keyboard())
+    update.message.reply_text(result, reply_markup=get_main_keyboard())
     
     logger.info(f"📚 Пользователь {user_id} добавил учебное расписание")
     return ConversationHandler.END
 
-async def process_work_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def process_work_schedule(update, context):
     """Обработчик рабочего расписания"""
     user_id = update.effective_user.id
     schedule_text = update.message.text
     
     result = schedule_manager.add_work_schedule(user_id, schedule_text)
-    await update.message.reply_text(result, reply_markup=get_main_keyboard())
+    update.message.reply_text(result, reply_markup=get_main_keyboard())
     
     logger.info(f"💼 Пользователь {user_id} добавил рабочее расписание")
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def cancel(update, context):
     """Отмена операции"""
-    await update.callback_query.answer()
-    await update.callback_query.edit_message_text(
+    update.callback_query.answer()
+    update.callback_query.edit_message_text(
         "🏠 **Главное меню**\n\n"
         "Выберите действие:",
         reply_markup=get_main_keyboard()
@@ -305,14 +305,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # Обработчик голосовых сообщений
-async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def process_voice(update, context):
     """Обработчик голосовых сообщений"""
     user_id = update.effective_user.id
     
     # В реальном боте здесь была бы обработка голоса через speech-to-text
     # Пока просто предлагаем переписать текстом
     
-    await update.message.reply_text(
+    update.message.reply_text(
         "🎤 Голосовое сообщение получено!\n\n"
         "К сожалению, пока не могу распознать голос. "
         "Пожалуйста, напишите расписание текстом или выберите тип:",
@@ -322,18 +322,18 @@ async def process_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"🎤 Пользователь {user_id} отправил голосовое сообщение")
 
 # Обработчик callback-запросов
-async def process_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def process_callback(update, context):
     """Обработчик нажатий на кнопки"""
     user_id = update.effective_user.id
     data = update.callback_query.data
     
-    await update.callback_query.answer()
+    update.callback_query.answer()
     
     if data == "my_schedules":
         user_schedules = schedule_manager.get_user_schedules(user_id)
         
         if not user_schedules['study'] and not user_schedules['work']:
-            await update.callback_query.edit_message_text(
+            update.callback_query.edit_message_text(
                 "📝 **Ваши расписания**\n\n"
                 "У вас пока нет добавленных расписаний.\n\n"
                 "Добавьте первое расписание!",
@@ -353,7 +353,7 @@ async def process_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 for item in user_schedules['work']:
                     schedules_text += f"• ID {item['id']}: {item['text']}\n"
             
-            await update.callback_query.edit_message_text(
+            update.callback_query.edit_message_text(
                 schedules_text,
                 reply_markup=get_back_keyboard()
             )
@@ -362,14 +362,14 @@ async def process_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == "analyze":
         analysis = schedule_manager.analyze_schedule(user_id)
-        await update.callback_query.edit_message_text(
+        update.callback_query.edit_message_text(
             analysis,
             reply_markup=get_back_keyboard()
         )
         logger.info(f"🔍 Пользователь {user_id} запросил анализ расписания")
     
     elif data == "voice_input":
-        await update.callback_query.edit_message_text(
+        update.callback_query.edit_message_text(
             "🎤 **Голосовое сообщение**\n\n"
             "Отправьте голосовое сообщение с вашим расписанием.\n\n"
             "Пока что я не могу распознавать голос, но в будущем это будет доступно!",
@@ -394,19 +394,19 @@ async def process_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 Бот запомнит все и поможет вам лучше планировать время! ⏰
 """
-        await update.callback_query.edit_message_text(
+        update.callback_query.edit_message_text(
             help_text,
             reply_markup=get_back_keyboard()
         )
     
     elif data == "back_to_main":
-        await update.callback_query.edit_message_text(
+        update.callback_query.edit_message_text(
             "🏠 **Главное меню**\n\n"
             "Выберите действие:",
             reply_markup=get_main_keyboard()
         )
 
-async def main():
+def main():
     """Главная функция"""
     logger.info("🚀 Запуск бота...")
     
@@ -415,16 +415,17 @@ async def main():
     flask_thread.start()
     logger.info("🌐 Flask запущен в отдельном потоке")
     
-    # Создаем приложение
-    application = Application.builder().token(BOT_TOKEN).build()
+    # Создаем updater
+    updater = Updater(BOT_TOKEN, use_context=True)
+    dp = updater.dispatcher
     
     # Добавляем обработчики команд
-    application.add_handler(CommandHandler("start", cmd_start))
-    application.add_handler(CommandHandler("help", cmd_help))
-    application.add_handler(CommandHandler("ping", cmd_ping))
+    dp.add_handler(CommandHandler("start", cmd_start))
+    dp.add_handler(CommandHandler("help", cmd_help))
+    dp.add_handler(CommandHandler("ping", cmd_ping))
     
     # Добавляем обработчик голосовых сообщений
-    application.add_handler(MessageHandler(filters.VOICE, process_voice))
+    dp.add_handler(MessageHandler(Filters.voice, process_voice))
     
     # Добавляем ConversationHandler для добавления расписания
     conv_handler = ConversationHandler(
@@ -433,32 +434,30 @@ async def main():
             CallbackQueryHandler(add_work_start, pattern="^add_work$")
         ],
         states={
-            WAITING_FOR_STUDY_SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_study_schedule)],
-            WAITING_FOR_WORK_SCHEDULE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_work_schedule)]
+            WAITING_FOR_STUDY_SCHEDULE: [MessageHandler(Filters.text & ~Filters.command, process_study_schedule)],
+            WAITING_FOR_WORK_SCHEDULE: [MessageHandler(Filters.text & ~Filters.command, process_work_schedule)]
         },
         fallbacks=[CallbackQueryHandler(cancel, pattern="^back_to_main$")]
     )
     
-    application.add_handler(conv_handler)
+    dp.add_handler(conv_handler)
     
     # Добавляем обработчик callback-запросов
-    application.add_handler(CallbackQueryHandler(process_callback))
+    dp.add_handler(CallbackQueryHandler(process_callback))
     
     # Запускаем бота
     try:
         logger.info("🤖 Бот запущен и готов к работе!")
-        await application.initialize()
-        await application.start()
-        await application.run_polling()
+        updater.start_polling()
+        updater.idle()
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
     finally:
-        await application.stop()
-        await application.shutdown()
+        updater.stop()
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         logger.info("🛑 Бот остановлен пользователем")
     except Exception as e:
