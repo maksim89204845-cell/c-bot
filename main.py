@@ -7,6 +7,13 @@ import asyncio
 import threading
 from flask import Flask, request, jsonify
 
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Импорты для python-telegram-bot 12.x
 try:
     import telegram
@@ -15,15 +22,8 @@ try:
     logger.info(f"✅ python-telegram-bot версии {telegram.__version__} успешно импортирован")
 except ImportError as e:
     logger.error(f"❌ Ошибка импорта python-telegram-bot: {e}")
-    logger.error("Установите: pip install python-telegram-bot==12.8")
+    logger.error("Установите: pip install python-telegram-bot>=12.0,<13.0")
     exit(1)
-
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 # Инициализация Flask для Render.com
 app = Flask(__name__)
