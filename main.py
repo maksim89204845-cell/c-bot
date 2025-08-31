@@ -8,6 +8,8 @@ from flask import Flask, request, jsonify
 import schedule
 import time
 import uuid
+import signal
+import sys
 
 # Импорты для telebot (pyTelegramBotAPI)
 try:
@@ -85,10 +87,25 @@ class ScheduleManager:
             parts = date_text.strip().split()
             if len(parts) >= 2:
                 day = int(parts[0])
+                
+                # Валидация дня
+                if day < 1 or day > 31:
+                    logger.warning(f"⚠️ Некорректный день: {day}")
+                    return date_text
+                
                 month_name = parts[1].lower()
                 
                 if month_name in months:
                     month = months[month_name]
+                    
+                    # Валидация конкретных месяцев
+                    if month == 2 and day > 29:  # Февраль
+                        logger.warning(f"⚠️ Некорректный день для февраля: {day}")
+                        return date_text
+                    elif month in [4, 6, 9, 11] and day > 30:  # 30-дневные месяцы
+                        logger.warning(f"⚠️ Некорректный день для {month_name}: {day}")
+                        return date_text
+                    
                     # Формируем дату в формате YYYY-MM-DD
                     date_obj = datetime(current_year, month, day)
                     return date_obj.strftime('%Y-%m-%d')
@@ -162,11 +179,24 @@ class ScheduleManager:
         for date_key in sorted_dates:
             events = self.schedules[user_id][date_key]
             if events:
+                # Словарь для русских названий месяцев
+                months_ru = {
+                    1: 'января', 2: 'февраля', 3: 'марта', 4: 'апреля',
+                    5: 'мая', 6: 'июня', 7: 'июля', 8: 'августа',
+                    9: 'сентября', 10: 'октября', 11: 'ноября', 12: 'декабря'
+                }
+                
                 # Преобразуем дату в читаемый формат
                 try:
                     date_obj = datetime.strptime(date_key, '%Y-%m-%d')
-                    date_display = date_obj.strftime('%d %B')
-                except:
+                    day = date_obj.day
+                    month = months_ru.get(date_obj.month, str(date_obj.month))
+                    date_display = f"{day} {month}"
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"⚠️ Ошибка парсинга даты '{date_key}': {e}")
+                    date_display = date_key
+                except Exception as e:
+                    logger.warning(f"⚠️ Неожиданная ошибка при форматировании даты '{date_key}': {e}")
                     date_display = date_key
                 
                 result += f"📅 {date_display}:\n"
@@ -230,17 +260,34 @@ class ScheduleManager:
         analysis += f"• Учебных: {study_count}\n"
         analysis += f"• Рабочих: {work_count}\n\n"
         
+        # Словарь для русских названий дней недели
+        weekdays_ru = {
+            'Monday': 'Понедельник',
+            'Tuesday': 'Вторник',
+            'Wednesday': 'Среда',
+            'Thursday': 'Четверг',
+            'Friday': 'Пятница',
+            'Saturday': 'Суббота',
+            'Sunday': 'Воскресенье'
+        }
+        
         # Анализ по дням недели
         weekday_stats = {}
         for date_key, events in user_schedules.items():
             try:
                 date_obj = datetime.strptime(date_key, '%Y-%m-%d')
-                weekday = date_obj.strftime('%A')  # Monday, Tuesday, etc.
-                if weekday not in weekday_stats:
-                    weekday_stats[weekday] = 0
-                weekday_stats[weekday] += len(events)
-            except:
-                pass
+                english_weekday = date_obj.strftime('%A')
+                russian_weekday = weekdays_ru.get(english_weekday, english_weekday)
+                
+                if russian_weekday not in weekday_stats:
+                    weekday_stats[russian_weekday] = 0
+                weekday_stats[russian_weekday] += len(events)
+            except (ValueError, TypeError) as e:
+                logger.warning(f"⚠️ Ошибка парсинга даты '{date_key}': {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"⚠️ Неожиданная ошибка при анализе даты '{date_key}': {e}")
+                continue
         
         # Самый загруженный день
         if weekday_stats:
@@ -363,9 +410,12 @@ class ScheduleManager:
             
             return result
             
+        except (ValueError, TypeError) as e:
+            logger.error(f"❌ Ошибка валидации в ИИ-планировщике: {e}")
+            return f"❌ Ошибка валидации данных: {e}"
         except Exception as e:
-            logger.error(f"❌ Ошибка в ИИ-планировщике: {e}")
-            return f"❌ Ошибка планирования: {e}"
+            logger.error(f"❌ Неожиданная ошибка в ИИ-планировщике: {e}")
+            return f"❌ Неожиданная ошибка: {e}"
     
     def auto_plan_work_shift(self, user_id: int, target_communications: int) -> str:
         """Автоматически планирует оптимальную рабочую смену"""
@@ -379,29 +429,44 @@ class ScheduleManager:
                 # Проверяем существующие события
                 existing_events = self.schedules.get(user_id, {}).get(check_date, [])
                 
-                # Ищем свободные 4-часовые слоты
-                for hour in range(9, 18):  # 9:00 - 18:00
-                    slot_start = f"{hour:02d}:00"
-                    slot_end = f"{hour + 4:02d}:00"
+                            # Словарь для русских названий дней недели
+            weekdays_ru = {
+                'Monday': 'Понедельник',
+                'Tuesday': 'Вторник',
+                'Wednesday': 'Среда',
+                'Thursday': 'Четверг',
+                'Friday': 'Пятница',
+                'Saturday': 'Суббота',
+                'Sunday': 'Воскресенье'
+            }
+            
+            # Ищем свободные 4-часовые слоты
+            for hour in range(9, 18):  # 9:00 - 18:00
+                slot_start = f"{hour:02d}:00"
+                slot_end = f"{hour + 4:02d}:00"
+                
+                # Проверяем конфликты
+                conflict = False
+                for event in existing_events:
+                    event_start = event.get('time', '').split('-')[0].strip()
+                    event_end = event.get('time', '').split('-')[-1].strip()
                     
-                    # Проверяем конфликты
-                    conflict = False
-                    for event in existing_events:
-                        event_start = event.get('time', '').split('-')[0].strip()
-                        event_end = event.get('time', '').split('-')[-1].strip()
-                        
-                        # Простая проверка пересечения времени
-                        if (slot_start < event_end and slot_end > event_start):
-                            conflict = True
-                            break
+                    # Простая проверка пересечения времени
+                    if (slot_start < event_end and slot_end > event_start):
+                        conflict = True
+                        break
+                
+                if not conflict:
+                    # Получаем русское название дня недели
+                    english_day = (datetime.now() + timedelta(days=i)).strftime('%A')
+                    russian_day = weekdays_ru.get(english_day, english_day)
                     
-                    if not conflict:
-                        available_slots.append({
-                            'date': check_date,
-                            'start': slot_start,
-                            'end': slot_end,
-                            'day_name': (datetime.now() + timedelta(days=i)).strftime('%A')
-                        })
+                    available_slots.append({
+                        'date': check_date,
+                        'start': slot_start,
+                        'end': slot_end,
+                        'day_name': russian_day
+                    })
             
             if not available_slots:
                 return "❌ Нет свободных слотов на ближайшие 7 дней"
@@ -427,18 +492,14 @@ class ScheduleManager:
             
             return result
             
+        except (ValueError, TypeError) as e:
+            logger.error(f"❌ Ошибка валидации в авто-планировании: {e}")
+            return f"❌ Ошибка валидации данных: {e}"
         except Exception as e:
-            logger.error(f"❌ Ошибка авто-планирования: {e}")
-            return f"❌ Ошибка авто-планирования: {e}"
+            logger.error(f"❌ Неожиданная ошибка в авто-планировании: {e}")
+            return f"❌ Неожиданная ошибка: {e}"
     
-    def _add_hours(self, time_str: str, hours: float) -> str:
-        """Добавляет часы к времени"""
-        try:
-            time_obj = datetime.strptime(time_str, '%H:%M')
-            new_time = time_obj + timedelta(hours=hours)
-            return new_time.strftime('%H:%M')
-        except:
-            return time_str
+
 
 # Инициализация менеджера расписания
 schedule_manager = ScheduleManager()
@@ -451,6 +512,26 @@ if not BOT_TOKEN:
 
 # Инициализация бота
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# Флаг для корректного завершения
+shutdown_flag = False
+
+def signal_handler(signum, frame):
+    """Обработчик сигналов для корректного завершения"""
+    global shutdown_flag
+    logger.info(f"📡 Получен сигнал {signum}, завершаем работу...")
+    shutdown_flag = True
+    
+    try:
+        bot.stop_polling()
+    except:
+        pass
+    
+    sys.exit(0)
+
+# Регистрируем обработчики сигналов
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 # Клавиатуры
 def get_main_keyboard() -> InlineKeyboardMarkup:
@@ -676,6 +757,73 @@ def handle_text(message):
                 "Пример: 250",
                 reply_markup=get_main_keyboard())
     
+    elif state == "waiting_for_study_datetime":
+        # Парсим дату и время
+        try:
+            parts = text.split()
+            if len(parts) >= 3:
+                day = parts[0]
+                month = parts[1]
+                time_range = parts[2]
+                
+                date_text = f"{day} {month}"
+                time_text = time_range
+                
+                # Устанавливаем состояние ожидания предмета
+                user_states[user_id] = f"waiting_for_study_subject_{date_text}_{time_text}"
+                
+                bot.reply_to(message, 
+                    f"📚 Отлично! Дата: {date_text}, Время: {time_text}\n\n"
+                    "Теперь введите название предмета:",
+                    reply_markup=get_back_keyboard())
+            else:
+                bot.reply_to(message, 
+                    "❌ Неправильный формат!\n\n"
+                    "Используйте: 2 сентября 13:55-15:35",
+                    reply_markup=get_back_keyboard())
+        except Exception as e:
+            bot.reply_to(message, 
+                "❌ Ошибка! Попробуйте снова.",
+                reply_markup=get_back_keyboard())
+    
+    elif state == "waiting_for_work_datetime":
+        # Парсим дату и время
+        try:
+            parts = text.split()
+            if len(parts) >= 3:
+                day = parts[0]
+                month = parts[1]
+                time_range = parts[2]
+                
+                date_text = f"{day} {month}"
+                time_text = time_range
+                
+                # Устанавливаем состояние ожидания описания работы
+                user_states[user_id] = f"waiting_for_work_description_{date_text}_{time_text}"
+                
+                bot.reply_to(message, 
+                    f"💼 Отлично! Дата: {date_text}, Время: {time_text}\n\n"
+                    "Теперь введите описание работы:",
+                    reply_markup=get_back_keyboard())
+            else:
+                bot.reply_to(message, 
+                    "❌ Неправильный формат!\n\n"
+                    "Используйте: 2 сентября 14:00-15:00",
+                    reply_markup=get_back_keyboard())
+        except Exception as e:
+            bot.reply_to(message, 
+                "❌ Ошибка! Попробуйте снова.",
+                reply_markup=get_back_keyboard())
+    
+    elif state == "waiting_for_date":
+        # Показываем расписание на указанную дату
+        schedule_text = schedule_manager.get_date_schedule(user_id, text)
+        bot.reply_to(message, schedule_text, reply_markup=get_main_keyboard())
+        
+        # Очищаем состояние
+        del user_states[user_id]
+        logger.info(f"📅 Пользователь {user_id} запросил расписание на дату: {text}")
+    
     else:
         bot.reply_to(message, "Выберите действие в главном меню:", reply_markup=get_main_keyboard())
 
@@ -748,80 +896,12 @@ def process_callback(call):
         user_states[user_id] = "waiting_for_date"
     
     elif data == "waiting_for_study_datetime":
-        # Парсим дату и время
-        try:
-            parts = text.split()
-            if len(parts) >= 3:
-                day = parts[0]
-                month = parts[1]
-                time_range = parts[2]
-                
-                date_text = f"{day} {month}"
-                time_text = time_range
-                
-                # Устанавливаем состояние ожидания предмета
-                user_states[user_id] = f"waiting_for_study_subject_{date_text}_{time_text}"
-                
-                bot.edit_message_text(
-                    f"📚 Отлично! Дата: {date_text}, Время: {time_text}\n\n"
-                    "Теперь введите название предмета:",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=get_back_keyboard()
-                )
-            else:
-                bot.edit_message_text(
-                    "❌ Неправильный формат!\n\n"
-                    "Используйте: 2 сентября 13:55-15:35",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=get_back_keyboard()
-                )
-        except Exception as e:
-            bot.edit_message_text(
-                "❌ Ошибка! Попробуйте снова.",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=get_back_keyboard()
-            )
+        # Это состояние обрабатывается в handle_text, не здесь
+        pass
     
     elif data == "waiting_for_work_datetime":
-        # Парсим дату и время
-        try:
-            parts = text.split()
-            if len(parts) >= 3:
-                day = parts[0]
-                month = parts[1]
-                time_range = parts[2]
-                
-                date_text = f"{day} {month}"
-                time_text = time_range
-                
-                # Устанавливаем состояние ожидания описания работы
-                user_states[user_id] = f"waiting_for_work_description_{date_text}_{time_text}"
-                
-                bot.edit_message_text(
-                    f"💼 Отлично! Дата: {date_text}, Время: {time_text}\n\n"
-                    "Теперь введите описание работы:",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=get_back_keyboard()
-                )
-            else:
-                bot.edit_message_text(
-                    "❌ Неправильный формат!\n\n"
-                    "Используйте: 2 сентября 14:00-15:00",
-                    chat_id=call.message.chat.id,
-                    message_id=call.message.message_id,
-                    reply_markup=get_back_keyboard()
-                )
-        except Exception as e:
-            bot.edit_message_text(
-                "❌ Ошибка! Попробуйте снова.",
-                chat_id=call.message.chat.id,
-                message_id=call.message.message_id,
-                reply_markup=get_back_keyboard()
-                )
+        # Это состояние обрабатывается в handle_text, не здесь
+        pass
     
     elif data == "show_week":
         schedule_text = schedule_manager.get_week_schedule(user_id)
@@ -941,16 +1021,59 @@ def main():
     scheduler_thread.start()
     logger.info("⏰ Планировщик запущен в отдельном потоке")
     
-    # Запускаем бота
-    try:
-        logger.info("🤖 Бот запущен и готов к работе!")
-        bot.polling(none_stop=True, interval=0)
-    except KeyboardInterrupt:
-        logger.info("🛑 Бот остановлен пользователем")
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка: {e}")
-    finally:
-        bot.stop_polling()
+    # Запускаем бота с автоматическим перезапуском
+    max_retries = 5
+    retry_count = 0
+    
+    while retry_count < max_retries and not shutdown_flag:
+        try:
+            logger.info(f"🤖 Попытка запуска бота #{retry_count + 1}")
+            
+            # Очищаем webhook перед запуском
+            bot.remove_webhook()
+            
+            # Запускаем бота
+            bot.polling(none_stop=True, interval=1, timeout=60)
+            
+        except Exception as e:
+            if shutdown_flag:
+                break
+                
+            retry_count += 1
+            error_msg = str(e)
+            
+            if "409" in error_msg or "Conflict" in error_msg:
+                logger.warning(f"⚠️ Конфликт экземпляров бота (попытка {retry_count}/{max_retries})")
+                logger.info("🔄 Ожидание 30 секунд перед повторной попыткой...")
+                
+                # Проверяем флаг завершения каждые 5 секунд
+                for i in range(6):
+                    if shutdown_flag:
+                        break
+                    time.sleep(5)
+                
+                # Очищаем состояние бота
+                try:
+                    bot.stop_polling()
+                except:
+                    pass
+                
+            else:
+                logger.error(f"❌ Критическая ошибка: {e}")
+                if retry_count < max_retries:
+                    logger.info(f"🔄 Перезапуск через 10 секунд... (попытка {retry_count}/{max_retries})")
+                    
+                    # Проверяем флаг завершения каждые 2 секунды
+                    for i in range(5):
+                        if shutdown_flag:
+                            break
+                        time.sleep(2)
+                else:
+                    logger.error("❌ Превышено максимальное количество попыток запуска")
+                    break
+    
+    logger.error("❌ Бот не смог запуститься после всех попыток")
+    bot.stop_polling()
 
 if __name__ == '__main__':
     main()
