@@ -91,6 +91,7 @@ class ScheduleParser:
         logging.info(f"Всего строк: {len(lines)}")
         
         current_date = None
+        temp_lessons = {}  # Временные уроки до нахождения даты
         
         # Проходим по строкам
         for i, line in enumerate(lines):
@@ -103,7 +104,17 @@ class ScheduleParser:
             # Ищем дату (формат: DD.MM.YYYY)
             date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', line)
             if date_match:
-                current_date = date_match.group(1)
+                new_date = date_match.group(1)
+                
+                # Если у нас есть временные уроки, переносим их на новую дату
+                if temp_lessons:
+                    logging.info(f"🔄 Переношу {len(temp_lessons)} временных уроков на {new_date}")
+                    if new_date not in schedule:
+                        schedule[new_date] = {}
+                    schedule[new_date].update(temp_lessons)
+                    temp_lessons.clear()
+                
+                current_date = new_date
                 if current_date not in schedule:
                     schedule[current_date] = {}
                 logging.info(f"✅ Найдена дата: {current_date}")
@@ -115,19 +126,6 @@ class ScheduleParser:
                 hour, minute = lesson_time_match.groups()
                 lesson_time = f"{hour}:{minute}"
                 logging.info(f"✅ Найдено время в уроке: {lesson_time}")
-                
-                # Если нет даты, ищем в следующих строках
-                if not current_date:
-                    found_date = self._find_date_in_next_lines(lines, i+1, 10)
-                    if found_date:
-                        current_date = found_date
-                        if current_date not in schedule:
-                            schedule[current_date] = {}
-                    else:
-                        # Создаем временную дату
-                        current_date = "01.09.2025"
-                        if current_date not in schedule:
-                            schedule[current_date] = {}
                 
                 # Извлекаем предметы для группы 302 Ф из правой колонки
                 subjects = self._extract_subjects_for_302f(line)
@@ -150,7 +148,9 @@ class ScheduleParser:
                         else:
                             logging.info(f"⚠️ Время {lesson_time} уже существует в дате {current_date}")
                     else:
-                        logging.info(f"❌ Нет текущей даты для времени {lesson_time}")
+                        # Сохраняем во временные уроки
+                        temp_lessons[lesson_time] = lesson_data
+                        logging.info(f"📝 Сохранен временный урок для времени {lesson_time}")
                 else:
                     logging.info(f"⚠️ Предмет пустой для времени {lesson_time}, пропускаю")
                 
@@ -163,6 +163,24 @@ class ScheduleParser:
                 current_main_time = f"{start_hour}:{start_min}-{end_hour}:{end_min}"
                 logging.info(f"✅ Найдено основное время: {current_main_time}")
                 continue
+        
+        # В конце переносим оставшиеся временные уроки на первую дату
+        if temp_lessons and schedule:
+            first_date = list(schedule.keys())[0]
+            logging.info(f"🔄 Переношу {len(temp_lessons)} оставшихся временных уроков на {first_date}")
+            if first_date not in schedule:
+                schedule[first_date] = {}
+            schedule[first_date].update(temp_lessons)
+        elif temp_lessons and not schedule:
+            # Если нет дат вообще, создаем временную дату
+            temp_date = "01.09.2025"
+            schedule[temp_date] = temp_lessons
+            logging.info(f"🔄 Создаю временную дату {temp_date} для {len(temp_lessons)} уроков")
+        
+        # Сортируем уроки по времени для каждого дня
+        for date in schedule:
+            schedule[date] = dict(sorted(schedule[date].items(), key=lambda x: x[0]))
+            logging.info(f"📅 Сортировка для {date}: {list(schedule[date].keys())}")
         
         # Проверяем, что расписание не пустое
         total_lessons = sum(len(day_schedule) for day_schedule in schedule.values())
@@ -199,6 +217,9 @@ class ScheduleParser:
                 # Убираем аудитории
                 right_part = re.sub(r'\d+\s+(?:Советская|Полесская|Ломоносова)', '', right_part)
                 right_part = re.sub(r'Спортивный зал', '', right_part)
+                # Убираем лишний текст с временем
+                right_part = re.sub(r'\d{2}-\d{2}', '', right_part)
+                right_part = re.sub(r'\d{2}:\d{2}\s*-\s*\d{2}:\d{2}', '', right_part)
                 right_part = re.sub(r'\s+', ' ', right_part).strip()
                 logging.info(f"📚 Извлечен предмет из правой части: '{right_part}'")
                 return right_part
@@ -206,6 +227,9 @@ class ScheduleParser:
         # Если ничего не найдено, берем всю строку и убираем аудитории
         line = re.sub(r'\d+\s+(?:Советская|Полесская|Ломоносова)', '', line)
         line = re.sub(r'Спортивный зал', '', line)
+        # Убираем лишний текст с временем
+        line = re.sub(r'\d{2}-\d{2}', '', line)
+        line = re.sub(r'\d{2}:\d{2}\s*-\s*\d{2}:\d{2}', '', line)
         line = re.sub(r'\s+', ' ', line).strip()
         
         logging.info(f"📚 Извлечен предмет: '{line}'")
@@ -374,13 +398,22 @@ class ScheduleParser:
         # Создаем отдельное сообщение для каждого дня
         messages = []
         
-        for date, day_schedule in schedule.items():
+        # Сортируем даты для правильного порядка
+        sorted_dates = sorted(schedule.keys(), key=lambda x: datetime.strptime(x, '%d.%m.%Y'))
+        
+        for date in sorted_dates:
+            day_schedule = schedule[date]
+            
             if not day_schedule:  # Пропускаем пустые дни
                 continue
                 
             day_message = f"📅 Расписание на {date}:\n\n"
             
-            for time, lesson in day_schedule.items():
+            # Сортируем уроки по времени
+            sorted_times = sorted(day_schedule.keys(), key=lambda x: x)
+            
+            for time in sorted_times:
+                lesson = day_schedule[time]
                 if lesson.get('subject'):
                     day_message += f"🕐 {time}\n"
                     day_message += f"📚 {lesson['subject']}\n"
