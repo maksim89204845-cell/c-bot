@@ -121,6 +121,10 @@ class ScheduleManager:
         if user_id not in self.schedules:
             self.schedules[user_id] = {}
         
+        # Валидация времени
+        if not self._validate_time_format(time_text):
+            return f"❌ Неправильный формат времени: {time_text}\nИспользуйте формат: 13:55-15:35"
+        
         # Парсим дату
         date_key = self.parse_date(date_text)
         
@@ -146,6 +150,31 @@ class ScheduleManager:
         self.save_schedules()
         
         return f"✅ Событие добавлено на {date_text} в {time_text}: {activity}"
+    
+    def _validate_time_format(self, time_text: str) -> bool:
+        """Проверяет корректность формата времени"""
+        try:
+            # Ожидаемый формат: "13:55-15:35"
+            if '-' not in time_text:
+                return False
+            
+            start_time, end_time = time_text.split('-')
+            
+            # Проверяем формат времени (HH:MM)
+            for time_part in [start_time.strip(), end_time.strip()]:
+                if ':' not in time_part:
+                    return False
+                
+                hour, minute = time_part.split(':')
+                hour_int = int(hour)
+                minute_int = int(minute)
+                
+                if hour_int < 0 or hour_int > 23 or minute_int < 0 or minute_int > 59:
+                    return False
+            
+            return True
+        except:
+            return False
     
     def get_date_schedule(self, user_id: int, date_text: str) -> str:
         """Получает расписание на конкретную дату"""
@@ -420,16 +449,11 @@ class ScheduleManager:
     def auto_plan_work_shift(self, user_id: int, target_communications: int) -> str:
         """Автоматически планирует оптимальную рабочую смену"""
         try:
-            # Находим свободные слоты на ближайшие 7 дней
-            available_slots = []
+            # Проверяем валидность target_communications
+            if target_communications <= 0:
+                return "❌ Некорректная цель: количество коммуникаций должно быть больше 0"
             
-            for i in range(7):
-                check_date = (datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d')
-                
-                # Проверяем существующие события
-                existing_events = self.schedules.get(user_id, {}).get(check_date, [])
-                
-                            # Словарь для русских названий дней недели
+            # Словарь для русских названий дней недели (выносим за цикл)
             weekdays_ru = {
                 'Monday': 'Понедельник',
                 'Tuesday': 'Вторник',
@@ -440,33 +464,42 @@ class ScheduleManager:
                 'Sunday': 'Воскресенье'
             }
             
-            # Ищем свободные 4-часовые слоты
-            for hour in range(9, 18):  # 9:00 - 18:00
-                slot_start = f"{hour:02d}:00"
-                slot_end = f"{hour + 4:02d}:00"
+            # Находим свободные слоты на ближайшие 7 дней
+            available_slots = []
+            
+            for i in range(7):
+                check_date = (datetime.now() + timedelta(days=i)).strftime('%Y-%m-%d')
                 
-                # Проверяем конфликты
-                conflict = False
-                for event in existing_events:
-                    event_start = event.get('time', '').split('-')[0].strip()
-                    event_end = event.get('time', '').split('-')[-1].strip()
-                    
-                    # Простая проверка пересечения времени
-                    if (slot_start < event_end and slot_end > event_start):
-                        conflict = True
-                        break
+                # Проверяем существующие события
+                existing_events = self.schedules.get(user_id, {}).get(check_date, [])
                 
-                if not conflict:
-                    # Получаем русское название дня недели
-                    english_day = (datetime.now() + timedelta(days=i)).strftime('%A')
-                    russian_day = weekdays_ru.get(english_day, english_day)
+                # Ищем свободные 4-часовые слоты
+                for hour in range(9, 18):  # 9:00 - 18:00
+                    slot_start = f"{hour:02d}:00"
+                    slot_end = f"{hour + 4:02d}:00"
                     
-                    available_slots.append({
-                        'date': check_date,
-                        'start': slot_start,
-                        'end': slot_end,
-                        'day_name': russian_day
-                    })
+                    # Проверяем конфликты
+                    conflict = False
+                    for event in existing_events:
+                        event_start = event.get('time', '').split('-')[0].strip()
+                        event_end = event.get('time', '').split('-')[-1].strip()
+                        
+                        # Простая проверка пересечения времени
+                        if (slot_start < event_end and slot_end > event_start):
+                            conflict = True
+                            break
+                    
+                    if not conflict:
+                        # Получаем русское название дня недели
+                        english_day = (datetime.now() + timedelta(days=i)).strftime('%A')
+                        russian_day = weekdays_ru.get(english_day, english_day)
+                        
+                        available_slots.append({
+                            'date': check_date,
+                            'start': slot_start,
+                            'end': slot_end,
+                            'day_name': russian_day
+                        })
             
             if not available_slots:
                 return "❌ Нет свободных слотов на ближайшие 7 дней"
@@ -895,13 +928,7 @@ def process_callback(call):
         )
         user_states[user_id] = "waiting_for_date"
     
-    elif data == "waiting_for_study_datetime":
-        # Это состояние обрабатывается в handle_text, не здесь
-        pass
-    
-    elif data == "waiting_for_work_datetime":
-        # Это состояние обрабатывается в handle_text, не здесь
-        pass
+
     
     elif data == "show_week":
         schedule_text = schedule_manager.get_week_schedule(user_id)
