@@ -6,6 +6,7 @@
 - ❌ Убран парсинг PDF расписания
 - ❌ Убраны зависимости для работы с PDF
 - ❌ Убраны команды для просмотра расписания
+- 🔄 **ЗАМЕНЕН aiogram на python-telegram-bot**
 
 ### **Новый функционал:**
 - ✅ **Персональный помощник по расписанию**
@@ -19,16 +20,22 @@
 ## 🔧 **Технические изменения:**
 
 ### **Файлы:**
-- `main.py` - полностью переписан
-- `requirements.txt` - упрощен (только aiogram + flask)
+- `main.py` - полностью переписан на python-telegram-bot
+- `requirements.txt` - заменен aiogram на python-telegram-bot==20.7
 - `schedule_parser.py` - удален
 - `README.md` - обновлен под новый функционал
 
 ### **Архитектура:**
 - **ScheduleManager** - управление расписаниями
-- **FSM States** - состояния для ввода
+- **ConversationHandler** - состояния для ввода (вместо FSM)
 - **Inline Keyboards** - интерактивный интерфейс
 - **JSON Storage** - локальное хранение данных
+
+### **Почему python-telegram-bot:**
+- ✅ **Лучше совместимость** с Python 3.13
+- ✅ **Проще синтаксис** и меньше кода
+- ✅ **Меньше зависимостей** и проблем с деплоем
+- ✅ **Официальная библиотека** Telegram
 
 ## 📱 **Новые возможности бота:**
 
@@ -47,11 +54,12 @@ git add .
 git commit -m "🚀 Complete rewrite: Personal Schedule Assistant Bot
 
 - Remove PDF parsing functionality
+- Replace aiogram with python-telegram-bot for better compatibility
 - Add personal schedule management
 - Add study/work schedule input
 - Add smart analysis and advice
 - Add interactive inline keyboards
-- Add FSM states for user input
+- Add ConversationHandler for user input
 - Add JSON storage for schedules
 - Update requirements and documentation"
 git push origin main
@@ -77,7 +85,15 @@ git push origin main
 - 🔄 **Легкое обновление** и изменение
 - 📱 **Удобный интерфейс** с кнопками
 - 🚀 **Быстрая работа** без парсинга PDF
+- 🔧 **Лучшая совместимость** с Python 3.13
+
+## 🚨 **Важно для деплоя:**
+
+- **Build Command:** `pip install -r requirements.txt`
+- **Start Command:** `python main.py`
+- **Python Version:** Автоматически выберется Python 3.13
+- **Dependencies:** python-telegram-bot==20.7 + flask + python-dotenv
 
 ---
 
-**Новый бот готов к использованию!** 🎉
+**Новый бот готов к использованию с python-telegram-bot!** 🎉
