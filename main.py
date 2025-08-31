@@ -447,10 +447,13 @@ async def main():
     # Запускаем бота
     try:
         logger.info("🤖 Бот запущен и готов к работе!")
+        await application.initialize()
+        await application.start()
         await application.run_polling()
     except Exception as e:
         logger.error(f"❌ Ошибка запуска бота: {e}")
     finally:
+        await application.stop()
         await application.shutdown()
 
 if __name__ == '__main__':

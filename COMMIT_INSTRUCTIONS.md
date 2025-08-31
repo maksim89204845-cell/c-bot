@@ -21,7 +21,7 @@
 
 ### **Файлы:**
 - `main.py` - полностью переписан на python-telegram-bot
-- `requirements.txt` - заменен aiogram на python-telegram-bot==20.7
+- `requirements.txt` - заменен aiogram на python-telegram-bot==20.6
 - `schedule_parser.py` - удален
 - `README.md` - обновлен под новый функционал
 
@@ -36,6 +36,10 @@
 - ✅ **Проще синтаксис** и меньше кода
 - ✅ **Меньше зависимостей** и проблем с деплоем
 - ✅ **Официальная библиотека** Telegram
+
+### **Исправления:**
+- 🔧 **Исправлена ошибка Updater** - добавлены правильные методы инициализации
+- 🔧 **Стабильная версия 20.6** - вместо проблемной 20.7
 
 ## 📱 **Новые возможности бота:**
 
@@ -55,6 +59,8 @@ git commit -m "🚀 Complete rewrite: Personal Schedule Assistant Bot
 
 - Remove PDF parsing functionality
 - Replace aiogram with python-telegram-bot for better compatibility
+- Fix Updater initialization error
+- Use stable version 20.6
 - Add personal schedule management
 - Add study/work schedule input
 - Add smart analysis and advice
@@ -92,7 +98,13 @@ git push origin main
 - **Build Command:** `pip install -r requirements.txt`
 - **Start Command:** `python main.py`
 - **Python Version:** Автоматически выберется Python 3.13
-- **Dependencies:** python-telegram-bot==20.7 + flask + python-dotenv
+- **Dependencies:** python-telegram-bot==20.6 + flask + python-dotenv
+
+## 🔧 **Исправленные ошибки:**
+
+- ✅ **Updater error** - добавлены правильные методы инициализации
+- ✅ **Version compatibility** - используется стабильная версия 20.6
+- ✅ **Proper shutdown** - корректное завершение работы бота
 
 ---
 
