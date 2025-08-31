@@ -7,12 +7,15 @@ import asyncio
 import threading
 from flask import Flask, request, jsonify
 
-# Импорты для python-telegram-bot 13.x
+# Импорты для python-telegram-bot 12.x
 try:
+    import telegram
     from telegram import Bot, Update, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.ext import Updater, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, Filters
-except ImportError:
-    logging.error("❌ python-telegram-bot не установлен. Установите: pip install python-telegram-bot==13.15")
+    logger.info(f"✅ python-telegram-bot версии {telegram.__version__} успешно импортирован")
+except ImportError as e:
+    logger.error(f"❌ Ошибка импорта python-telegram-bot: {e}")
+    logger.error("Установите: pip install python-telegram-bot==12.8")
     exit(1)
 
 # Настройка логирования
