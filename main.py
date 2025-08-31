@@ -137,10 +137,14 @@ async def cmd_schedule_week(message: types.Message):
         
         # Проверяем, есть ли реальные уроки в расписании
         has_lessons = False
+        total_lessons = 0
         for day_schedule in schedule.values():
-            if any(lesson.get('subject') for lesson in day_schedule.values()):
+            day_lessons = len([lesson for lesson in day_schedule.values() if lesson.get('subject')])
+            total_lessons += day_lessons
+            if day_lessons > 0:
                 has_lessons = True
-                break
+        
+        logging.info(f"🔍 Проверка расписания: has_lessons={has_lessons}, total_lessons={total_lessons}")
         
         if schedule and has_lessons:
             logging.info("Расписание найдено, форматирую сообщения...")
@@ -247,10 +251,14 @@ async def process_callback(callback: types.CallbackQuery):
             
             # Проверяем, есть ли реальные уроки в расписании
             has_lessons = False
+            total_lessons = 0
             for day_schedule in schedule.values():
-                if any(lesson.get('subject') for lesson in day_schedule.values()):
+                day_lessons = len([lesson for lesson in day_schedule.values() if lesson.get('subject')])
+                total_lessons += day_lessons
+                if day_lessons > 0:
                     has_lessons = True
-                    break
+            
+            logging.info(f"🔍 Проверка расписания для callback: has_lessons={has_lessons}, total_lessons={total_lessons}")
             
             if schedule and has_lessons:
                 messages = schedule_parser.format_week_schedule_messages(schedule)
