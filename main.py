@@ -23,8 +23,11 @@ def run_flask():
 import logging
 logging.basicConfig(level=logging.INFO)
 
-# Получение токена бота
-BOT_TOKEN = os.getenv('BOT_TOKEN', '8380069376:AAEB7UesvgxymReqmnQTIvIMNABB5_6N_gc')
+# Получение токена бота из переменных окружения
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    logging.error("❌ BOT_TOKEN не найден в переменных окружения!")
+    exit(1)
 
 # Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
@@ -68,13 +71,14 @@ async def send_today_schedule(message: Message):
         today = datetime.now().strftime('%d.%m.%Y')
         schedule = schedule_parser.get_schedule_for_date(today)
         
-        if schedule:
+        if schedule and any(lesson.get('subject') for lesson in schedule.values()):
             message_text = schedule_parser.format_schedule_message(schedule, today)
         else:
             message_text = f"📅 На {today} расписание не найдено или это выходной день."
         
         await message.reply(message_text)
     except Exception as e:
+        logging.error(f"❌ Ошибка в /schedule: {str(e)}")
         await message.reply(f"❌ Ошибка при получении расписания: {str(e)}")
 
 @dp.message(Command("schedule_tomorrow"))
@@ -83,7 +87,7 @@ async def send_tomorrow_schedule(message: Message):
     try:
         schedule = schedule_parser.get_schedule_for_tomorrow()
         
-        if schedule:
+        if schedule and any(lesson.get('subject') for lesson in schedule.values()):
             tomorrow = (datetime.now() + timedelta(days=1)).strftime('%d.%m.%Y')
             message_text = schedule_parser.format_schedule_message(schedule, tomorrow)
         else:
@@ -91,6 +95,7 @@ async def send_tomorrow_schedule(message: Message):
         
         await message.reply(message_text)
     except Exception as e:
+        logging.error(f"❌ Ошибка в /schedule_tomorrow: {str(e)}")
         await message.reply(f"❌ Ошибка при получении расписания: {str(e)}")
 
 @dp.message(Command("schedule_week"))
@@ -104,7 +109,14 @@ async def send_week_schedule(message: Message):
         schedule = schedule_parser.get_schedule_for_week()
         logging.info(f"Получено расписание: {schedule}")
         
-        if schedule:
+        # Проверяем, есть ли реальные уроки в расписании
+        has_lessons = False
+        for day_schedule in schedule.values():
+            if any(lesson.get('subject') for lesson in day_schedule.values()):
+                has_lessons = True
+                break
+        
+        if schedule and has_lessons:
             logging.info("Расписание найдено, форматирую сообщения...")
             # Используем новую функцию для разбивки сообщений
             messages = schedule_parser.format_week_schedule_messages(schedule)
@@ -113,14 +125,20 @@ async def send_week_schedule(message: Message):
             # Отправляем каждое сообщение отдельно
             for i, msg in enumerate(messages):
                 logging.info(f"Отправляю сообщение {i+1} из {len(messages)}")
-                if i == 0:
-                    await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
-                else:
-                    await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
-                logging.info(f"Сообщение {i+1} отправлено")
+                try:
+                    if i == 0:
+                        await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
+                    else:
+                        await message.reply(f"{msg}\n\n📋 Часть {i+1} из {len(messages)}")
+                    logging.info(f"Сообщение {i+1} отправлено")
+                    # Небольшая задержка между сообщениями
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    logging.error(f"❌ Ошибка отправки сообщения {i+1}: {str(e)}")
+                    await message.reply(f"❌ Ошибка отправки части {i+1}")
         else:
-            logging.info("Расписание не найдено")
-            await message.reply("📅 Расписание на неделю не найдено.")
+            logging.info("Расписание не найдено или пустое")
+            await message.reply("📅 Расписание на неделю не найдено или пустое. Попробуйте /update_schedule")
         
         logging.info("=== КОНЕЦ КОМАНДЫ /schedule_week ===")
     except Exception as e:
@@ -134,10 +152,21 @@ async def update_schedule(message: Message):
         await message.reply("🔄 Обновляю расписание...")
         
         if schedule_parser.update_schedule():
-            await message.reply("✅ Расписание успешно обновлено!")
+            # Проверяем, что расписание действительно обновилось
+            schedule = schedule_parser.get_schedule_for_week()
+            has_lessons = any(
+                any(lesson.get('subject') for lesson in day_schedule.values())
+                for day_schedule in schedule.values()
+            )
+            
+            if has_lessons:
+                await message.reply("✅ Расписание успешно обновлено! Теперь можете использовать команды /schedule, /schedule_tomorrow, /schedule_week")
+            else:
+                await message.reply("⚠️ Расписание обновлено, но уроки не найдены. Возможно, проблема с парсингом PDF.")
         else:
             await message.reply("❌ Не удалось обновить расписание. Попробуйте позже.")
     except Exception as e:
+        logging.error(f"❌ Ошибка в /update_schedule: {str(e)}")
         await message.reply(f"❌ Ошибка при обновлении расписания: {str(e)}")
 
 # ========================================
@@ -152,16 +181,26 @@ async def update_schedule(message: Message):
 async def main():
     """Основная функция запуска бота"""
     try:
+        logging.info("🚀 Запускаю бота...")
         # Запускаем бота
         await dp.start_polling(bot)
     except Exception as e:
-        logging.error(f"Ошибка запуска бота: {e}")
+        logging.error(f"❌ Ошибка запуска бота: {e}")
+        raise
 
 if __name__ == '__main__':
-    # Запускаем Flask в отдельном потоке для Render
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    # Запускаем бота в основном потоке
-    asyncio.run(main())
+    try:
+        # Запускаем Flask в отдельном потоке для Render
+        flask_thread = threading.Thread(target=run_flask)
+        flask_thread.daemon = True
+        flask_thread.start()
+        logging.info("🌐 Flask запущен в отдельном потоке")
+        
+        # Запускаем бота в основном потоке
+        logging.info("🤖 Запускаю бота...")
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("🛑 Бот остановлен пользователем")
+    except Exception as e:
+        logging.error(f"❌ Критическая ошибка: {e}")
+        raise

@@ -18,6 +18,10 @@ class ScheduleParser:
             logging.info("Начинаю скачивание PDF...")
             
             # Преобразуем ссылку для прямого скачивания
+            if '/d/' not in self.google_drive_url:
+                logging.error("❌ Неверный формат Google Drive URL")
+                return None
+                
             file_id = self.google_drive_url.split('/d/')[1].split('/')[0]
             direct_url = f"https://drive.google.com/uc?export=download&id={file_id}"
             
@@ -88,6 +92,7 @@ class ScheduleParser:
         
         current_date = None
         current_main_time = None
+        temp_lessons = {}  # Временные уроки до нахождения даты
         
         # Проходим по строкам
         for i, line in enumerate(lines):
@@ -100,8 +105,19 @@ class ScheduleParser:
             # Ищем дату (формат: DD.MM.YYYY)
             date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', line)
             if date_match:
-                current_date = date_match.group(1)
-                schedule[current_date] = {}
+                new_date = date_match.group(1)
+                
+                # Если у нас есть временные уроки, переносим их на новую дату
+                if temp_lessons:
+                    logging.info(f"🔄 Переношу {len(temp_lessons)} временных уроков на {new_date}")
+                    if new_date not in schedule:
+                        schedule[new_date] = {}
+                    schedule[new_date].update(temp_lessons)
+                    temp_lessons.clear()
+                
+                current_date = new_date
+                if current_date not in schedule:
+                    schedule[current_date] = {}
                 logging.info(f"✅ Найдена дата: {current_date}")
                 continue
             
@@ -120,9 +136,9 @@ class ScheduleParser:
                 lesson_time = f"{hour}:{minute}"
                 logging.info(f"✅ Найдено время в уроке: {lesson_time}")
                 
-                # Если нет даты, используем первую найденную или создаем временную
+                # Если нет даты, ищем в следующих строках
                 if not current_date:
-                    # Ищем дату в следующих строках или используем первую из расписания
+                    # Ищем дату в следующих строках
                     for j in range(1, 10):  # Проверяем следующие 10 строк
                         if i + j < len(lines):
                             next_line = lines[i + j].strip()
@@ -133,52 +149,51 @@ class ScheduleParser:
                                     schedule[current_date] = {}
                                 logging.info(f"🔍 Найдена дата в следующих строках: {current_date}")
                                 break
-                    
-                    # Если дата все еще не найдена, используем первую доступную
-                    if not current_date and schedule:
-                        current_date = list(schedule.keys())[0]
-                        logging.info(f"🔍 Использую первую доступную дату: {current_date}")
-                    elif not current_date:
-                        # Создаем временную дату для первого дня
-                        current_date = "01.09.2025"  # По умолчанию
-                        schedule[current_date] = {}
-                        logging.info(f"🔍 Создаю временную дату: {current_date}")
                 
-                # Теперь у нас есть дата, создаем запись
-                if current_date:
-                    if lesson_time not in schedule[current_date]:
-                        schedule[current_date][lesson_time] = {
-                            'subject': '',
-                            'instructor': '',
-                            'auditorium': ''
-                        }
-                        logging.info(f"📝 Создана запись для времени {lesson_time}")
-                    
-                    # Извлекаем предмет (убираем время из начала)
-                    subject = line.replace(f"{hour}-{minute}", "").strip()
-                    schedule[current_date][lesson_time]['subject'] = subject
-                    logging.info(f"📚 Извлечен предмет: '{subject}'")
-                    
-                    # Следующие строки должны содержать преподавателя и аудиторию
-                    # Проверяем следующие 2 строки
-                    for j in range(1, 3):
-                        if i + j < len(lines):
-                            next_line = lines[i + j].strip()
-                            logging.info(f"🔍 Проверяю строку {i+j+1}: '{next_line}'")
-                            
-                            if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
-                                # Это либо преподаватель, либо аудитория
-                                if not schedule[current_date][lesson_time]['instructor']:
-                                    schedule[current_date][lesson_time]['instructor'] = next_line
-                                    logging.info(f"👨‍🏫 Извлечен преподаватель: '{next_line}'")
-                                elif not schedule[current_date][lesson_time]['auditorium']:
-                                    schedule[current_date][lesson_time]['auditorium'] = next_line
-                                    logging.info(f"🏢 Извлечена аудитория: '{next_line}'")
-                                    break
-                            else:
-                                logging.info(f"❌ Строка {i+j+1} не подходит для преподавателя/аудитории")
+                # Создаем запись для урока
+                lesson_data = {
+                    'subject': '',
+                    'instructor': '',
+                    'auditorium': ''
+                }
+                
+                # Извлекаем предмет (убираем время из начала)
+                subject = line.replace(f"{hour}-{minute}", "").strip()
+                lesson_data['subject'] = subject
+                logging.info(f"📚 Извлечен предмет: '{subject}'")
+                
+                # Следующие строки должны содержать преподавателя и аудиторию
+                # Проверяем следующие 2 строки
+                for j in range(1, 3):
+                    if i + j < len(lines):
+                        next_line = lines[i + j].strip()
+                        logging.info(f"🔍 Проверяю строку {i+j+1}: '{next_line}'")
+                        
+                        if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
+                            # Это либо преподаватель, либо аудитория
+                            if not lesson_data['instructor']:
+                                lesson_data['instructor'] = next_line
+                                logging.info(f"👨‍🏫 Извлечен преподаватель: '{next_line}'")
+                            elif not lesson_data['auditorium']:
+                                lesson_data['auditorium'] = next_line
+                                logging.info(f"🏢 Извлечена аудитория: '{next_line}'")
+                                break
                         else:
-                            logging.info(f"❌ Строка {i+j+1} выходит за пределы")
+                            logging.info(f"❌ Строка {i+j+1} не подходит для преподавателя/аудитории")
+                    else:
+                        logging.info(f"❌ Строка {i+j+1} выходит за пределы")
+                
+                # Сохраняем урок
+                if current_date and current_date in schedule:
+                    if lesson_time not in schedule[current_date]:
+                        schedule[current_date][lesson_time] = lesson_data
+                        logging.info(f"📝 Создана запись для времени {lesson_time} в дате {current_date}")
+                    else:
+                        logging.info(f"⚠️ Время {lesson_time} уже существует в дате {current_date}")
+                else:
+                    # Если дата еще не создана, сохраняем во временные уроки
+                    temp_lessons[lesson_time] = lesson_data
+                    logging.info(f"📝 Сохранен временный урок для времени {lesson_time}")
                 
                 continue
             
@@ -220,6 +235,23 @@ class ScheduleParser:
                     else:
                         logging.info(f"❌ Строка {i+j+1} выходит за пределы для потокового")
         
+        # В конце переносим оставшиеся временные уроки на первую дату
+        if temp_lessons and schedule:
+            first_date = list(schedule.keys())[0]
+            logging.info(f"🔄 Переношу {len(temp_lessons)} оставшихся временных уроков на {first_date}")
+            if first_date not in schedule:
+                schedule[first_date] = {}
+            schedule[first_date].update(temp_lessons)
+        elif temp_lessons and not schedule:
+            # Если нет дат вообще, создаем временную дату
+            temp_date = "01.09.2025"
+            schedule[temp_date] = temp_lessons
+            logging.info(f"🔄 Создаю временную дату {temp_date} для {len(temp_lessons)} уроков")
+        
+        # Проверяем, что расписание не пустое
+        total_lessons = sum(len(day_schedule) for day_schedule in schedule.values())
+        logging.info(f"📊 Всего найдено уроков: {total_lessons}")
+        
         logging.info(f"📊 Итоговое расписание: {schedule}")
         logging.info(f"=== КОНЕЦ ОТЛАДКИ ===")
         return schedule
@@ -246,15 +278,26 @@ class ScheduleParser:
     def update_schedule(self) -> bool:
         """Обновляет расписание"""
         try:
+            logging.info("🔄 Начинаю обновление расписания...")
             pdf_content = self.download_pdf()
             if pdf_content:
                 text = self.extract_text_from_pdf(pdf_content)
-                self.schedule_data = self.parse_schedule(text)
-                self.last_update = datetime.now()
-                return True
-            return False
+                if text:
+                    self.schedule_data = self.parse_schedule(text)
+                    self.last_update = datetime.now()
+                    
+                    # Проверяем, что расписание не пустое
+                    total_lessons = sum(len(day_schedule) for day_schedule in self.schedule_data.values())
+                    logging.info(f"✅ Расписание обновлено! Всего уроков: {total_lessons}")
+                    return True
+                else:
+                    logging.error("❌ Не удалось извлечь текст из PDF")
+                    return False
+            else:
+                logging.error("❌ Не удалось скачать PDF")
+                return False
         except Exception as e:
-            logging.error(f"Ошибка обновления расписания: {e}")
+            logging.error(f"❌ Ошибка обновления расписания: {e}")
             return False
     
     def format_schedule_message(self, schedule: Dict, date: str = None) -> str:
@@ -269,8 +312,10 @@ class ScheduleParser:
                 if lesson.get('subject'):
                     message += f"🕐 {time}\n"
                     message += f"📚 {lesson['subject']}\n"
-                    message += f"👨‍🏫 {lesson['instructor']}\n"
-                    message += f"🏢 {lesson['auditorium']}\n"
+                    if lesson.get('instructor'):
+                        message += f"👨‍🏫 {lesson['instructor']}\n"
+                    if lesson.get('auditorium'):
+                        message += f"🏢 {lesson['auditorium']}\n"
                     message += "─" * 30 + "\n"
                 else:
                     message += f"🕐 {time} - Аудит.\n"
@@ -282,7 +327,13 @@ class ScheduleParser:
                 message += f"📆 {date}\n"
                 for time, lesson in day_schedule.items():
                     if lesson.get('subject'):
-                        message += f"🕐 {time} - {lesson['subject']} ({lesson['instructor']}, {lesson['auditorium']})\n"
+                        message += f"🕐 {time} - {lesson['subject']}"
+                        if lesson.get('instructor'):
+                            message += f" ({lesson['instructor']}"
+                            if lesson.get('auditorium'):
+                                message += f", {lesson['auditorium']}"
+                            message += ")"
+                        message += "\n"
                     else:
                         message += f"🕐 {time} - Аудит.\n"
                 message += "─" * 30 + "\n"
@@ -326,14 +377,19 @@ class ScheduleParser:
         messages = []
         
         for date, day_schedule in schedule.items():
+            if not day_schedule:  # Пропускаем пустые дни
+                continue
+                
             day_message = f"📅 Расписание на {date}:\n\n"
             
             for time, lesson in day_schedule.items():
                 if lesson.get('subject'):
                     day_message += f"🕐 {time}\n"
                     day_message += f"📚 {lesson['subject']}\n"
-                    day_message += f"👨‍🏫 {lesson['instructor']}\n"
-                    day_message += f"🏢 {lesson['auditorium']}\n"
+                    if lesson.get('instructor'):
+                        day_message += f"👨‍🏫 {lesson['instructor']}\n"
+                    if lesson.get('auditorium'):
+                        day_message += f"🏢 {lesson['auditorium']}\n"
                     day_message += "─" * 30 + "\n"
                 else:
                     day_message += f"🕐 {time} - Аудит.\n"
@@ -343,5 +399,9 @@ class ScheduleParser:
                 day_message += f"\n🔄 Обновлено: {self.last_update.strftime('%d.%m.%Y %H:%M')}"
             
             messages.append(day_message)
+        
+        # Если нет сообщений, возвращаем одно сообщение
+        if not messages:
+            return ["📅 Расписание на неделю не найдено или все дни пустые."]
         
         return messages
