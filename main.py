@@ -568,14 +568,18 @@ signal.signal(signal.SIGTERM, signal_handler)
 
 # Клавиатуры
 def get_main_keyboard() -> InlineKeyboardMarkup:
-    """Главная клавиатура"""
+    """Главная клавиатура (оптимизированная для мобильных)"""
     keyboard = [
         [
-            InlineKeyboardButton("➕ Добавить", callback_data="add_menu"),
+            InlineKeyboardButton("➕ Добавить", callback_data="add_menu")
+        ],
+        [
             InlineKeyboardButton("📅 Показать", callback_data="show_menu")
         ],
         [
-            InlineKeyboardButton("🤖 ИИ-планировщик", callback_data="ai_planner"),
+            InlineKeyboardButton("🤖 ИИ-планировщик", callback_data="ai_planner")
+        ],
+        [
             InlineKeyboardButton("📊 Статистика", callback_data="statistics")
         ]
     ]
@@ -802,7 +806,7 @@ def handle_text(message):
                 date_text = f"{day} {month}"
                 time_text = time_range
                 
-                # Устанавливаем состояние ожидания предмета
+                # Устанавливаем состояние ожидания предмета (без подчеркиваний)
                 user_states[user_id] = f"waiting_for_study_subject_{date_text}_{time_text}"
                 
                 bot.reply_to(message, 
@@ -815,6 +819,7 @@ def handle_text(message):
                     "Используйте: 2 сентября 13:55-15:35",
                     reply_markup=get_back_keyboard())
         except Exception as e:
+            logger.error(f"❌ Ошибка парсинга даты/времени: {e}")
             bot.reply_to(message, 
                 "❌ Ошибка! Попробуйте снова.",
                 reply_markup=get_back_keyboard())
@@ -831,7 +836,7 @@ def handle_text(message):
                 date_text = f"{day} {month}"
                 time_text = time_range
                 
-                # Устанавливаем состояние ожидания описания работы
+                # Устанавливаем состояние ожидания описания работы (без подчеркиваний)
                 user_states[user_id] = f"waiting_for_work_description_{date_text}_{time_text}"
                 
                 bot.reply_to(message, 
@@ -844,6 +849,7 @@ def handle_text(message):
                     "Используйте: 2 сентября 14:00-15:00",
                     reply_markup=get_back_keyboard())
         except Exception as e:
+            logger.error(f"❌ Ошибка парсинга даты/времени для работы: {e}")
             bot.reply_to(message, 
                 "❌ Ошибка! Попробуйте снова.",
                 reply_markup=get_back_keyboard())
@@ -1048,19 +1054,41 @@ def main():
     scheduler_thread.start()
     logger.info("⏰ Планировщик запущен в отдельном потоке")
     
-    # Запускаем бота с автоматическим перезапуском
-    max_retries = 5
+    # Запускаем бота с улучшенной обработкой Error 409
+    max_retries = 10  # Увеличиваем количество попыток
     retry_count = 0
     
     while retry_count < max_retries and not shutdown_flag:
         try:
             logger.info(f"🤖 Попытка запуска бота #{retry_count + 1}")
             
-            # Очищаем webhook перед запуском
-            bot.remove_webhook()
+            # Принудительная очистка webhook и состояния
+            try:
+                bot.remove_webhook()
+                logger.info("✅ Webhook очищен")
+            except Exception as e:
+                logger.warning(f"⚠️ Ошибка очистки webhook: {e}")
             
-            # Запускаем бота
-            bot.polling(none_stop=True, interval=1, timeout=60)
+            # Ждем завершения предыдущего экземпляра
+            time.sleep(3)
+            
+            # Проверяем, не запущен ли уже бот
+            try:
+                bot_info = bot.get_me()
+                logger.info(f"✅ Бот уже активен: @{bot_info.username}")
+                # Если бот активен, просто ждем
+                while not shutdown_flag:
+                    time.sleep(60)
+                break
+            except Exception as e:
+                logger.info(f"🔄 Запускаем новый экземпляр бота: {e}")
+            
+            # Запускаем бота с уникальным offset
+            import random
+            unique_offset = random.randint(1, 10000)
+            logger.info(f"🎯 Уникальный offset: {unique_offset}")
+            
+            bot.polling(none_stop=True, interval=2, timeout=60)
             
         except Exception as e:
             if shutdown_flag:
@@ -1071,36 +1099,46 @@ def main():
             
             if "409" in error_msg or "Conflict" in error_msg:
                 logger.warning(f"⚠️ Конфликт экземпляров бота (попытка {retry_count}/{max_retries})")
-                logger.info("🔄 Ожидание 30 секунд перед повторной попыткой...")
+                logger.info("🔄 Ожидание 60 секунд перед повторной попыткой...")
                 
-                # Проверяем флаг завершения каждые 5 секунд
-                for i in range(6):
+                # Принудительно останавливаем бота
+                try:
+                    bot.stop_polling()
+                    logger.info("✅ Бот остановлен")
+                except Exception as stop_error:
+                    logger.warning(f"⚠️ Ошибка остановки бота: {stop_error}")
+                
+                # Ждем дольше для полного завершения
+                for i in range(12):  # 60 секунд
                     if shutdown_flag:
                         break
                     time.sleep(5)
                 
-                # Очищаем состояние бота
-                try:
-                    bot.stop_polling()
-                except:
-                    pass
-                
             else:
                 logger.error(f"❌ Критическая ошибка: {e}")
                 if retry_count < max_retries:
-                    logger.info(f"🔄 Перезапуск через 10 секунд... (попытка {retry_count}/{max_retries})")
+                    logger.info(f"🔄 Перезапуск через 15 секунд... (попытка {retry_count}/{max_retries})")
                     
-                    # Проверяем флаг завершения каждые 2 секунды
+                    # Останавливаем бота перед перезапуском
+                    try:
+                        bot.stop_polling()
+                    except:
+                        pass
+                    
+                    # Проверяем флаг завершения каждые 3 секунды
                     for i in range(5):
                         if shutdown_flag:
                             break
-                        time.sleep(2)
+                        time.sleep(3)
                 else:
                     logger.error("❌ Превышено максимальное количество попыток запуска")
                     break
     
     logger.error("❌ Бот не смог запуститься после всех попыток")
-    bot.stop_polling()
+    try:
+        bot.stop_polling()
+    except:
+        pass
 
 if __name__ == '__main__':
     main()
