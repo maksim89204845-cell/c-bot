@@ -684,6 +684,106 @@ class ScheduleManager:
             ])
         
         return sessions
+    
+    def get_smart_recommendations(self, user_id: int) -> str:
+        """Генерирует умные рекомендации по расписанию"""
+        if user_id not in self.schedules:
+            return "📊 **Умные рекомендации**\n\nУ вас пока нет расписания. Добавьте несколько событий для получения рекомендаций!"
+        
+        result = "🤖 **Умные рекомендации ИИ:**\n\n"
+        
+        # Анализируем загруженность дней
+        busy_days = []
+        empty_days = []
+        total_events = 0
+        
+        for date_key, events in self.schedules[user_id].items():
+            if events:
+                total_events += len(events)
+                if len(events) >= 5:  # День считается загруженным
+                    busy_days.append((date_key, len(events)))
+                elif len(events) <= 1:  # День считается свободным
+                    empty_days.append(date_key)
+        
+        # Анализ по типам событий
+        study_count = 0
+        work_count = 0
+        general_count = 0
+        
+        for date_key, events in self.schedules[user_id].items():
+            for event in events:
+                if event.get('type') == 'study':
+                    study_count += 1
+                elif event.get('type') == 'work':
+                    work_count += 1
+                else:
+                    general_count += 1
+        
+        # Основные рекомендации
+        result += f"📊 **Общая статистика:**\n"
+        result += f"• Всего событий: {total_events}\n"
+        result += f"• Учебных: {study_count}\n"
+        result += f"• Рабочих: {work_count}\n"
+        result += f"• Общих: {general_count}\n\n"
+        
+        # Рекомендации по загруженности
+        if busy_days:
+            result += "⚠️ **Загруженные дни:**\n"
+            for date, count in sorted(busy_days, key=lambda x: x[1], reverse=True)[:3]:
+                result += f"• {date}: {count} событий\n"
+            result += "\n💡 **Рекомендации:**\n"
+            result += "• Разделите события на несколько дней\n"
+            result += "• Оставьте время для отдыха\n"
+            result += "• Приоритизируйте важные задачи\n\n"
+        
+        if empty_days:
+            result += "📅 **Свободные дни:**\n"
+            for date in empty_days[:5]:
+                result += f"• {date}\n"
+            result += "\n💡 **Рекомендации:**\n"
+            result += "• Используйте для планирования\n"
+            result += "• Добавьте учебные занятия\n"
+            result += "• Запланируйте рабочие задачи\n\n"
+        
+        # Баланс учебы и работы
+        if study_count > 0 and work_count > 0:
+            study_ratio = study_count / (study_count + work_count)
+            if study_ratio > 0.7:
+                result += "📚 **Баланс учеба/работа:**\n"
+                result += "• Много учебы, мало работы\n"
+                result += "• Рекомендуется добавить рабочие задачи\n\n"
+            elif study_ratio < 0.3:
+                result += "💼 **Баланс учеба/работа:**\n"
+                result += "• Много работы, мало учебы\n"
+                result += "• Рекомендуется добавить учебные занятия\n\n"
+            else:
+                result += "✅ **Баланс учеба/работа:**\n"
+                result += "• Хороший баланс между учебой и работой\n"
+                result += "• Продолжайте в том же духе!\n\n"
+        
+        # Рекомендации по времени
+        if total_events > 0:
+            result += "⏰ **Рекомендации по времени:**\n"
+            result += "• Планируйте сложные задачи на утро\n"
+            result += "• Делайте перерывы каждые 2 часа\n"
+            result += "• Оставляйте буферное время между событиями\n"
+            result += "• Не планируйте больше 8 часов в день\n\n"
+        
+        # Специальные рекомендации для Т-Мобайл
+        if work_count > 0:
+            result += "📱 **Специально для Т-Мобайл:**\n"
+            result += "• Цель: 1000 коммуникаций/месяц\n"
+            result += "• Цель: 300 коммуникаций/декаду\n"
+            result += "• Производительность: 13 комм/час\n"
+            result += "• Используйте ИИ-планировщик для оптимизации\n\n"
+        
+        result += "🎯 **Общие советы:**\n"
+        result += "• Регулярно анализируйте свое расписание\n"
+        result += "• Адаптируйте планы под изменения\n"
+        result += "• Не забывайте про отдых и перерывы\n"
+        result += "• Используйте статистику для улучшения\n"
+        
+        return result
 
 # Инициализация менеджера расписания
 schedule_manager = ScheduleManager()
@@ -699,12 +799,18 @@ bot = TeleBot(BOT_TOKEN)
 
 # Клавиатуры
 def get_main_keyboard() -> InlineKeyboardMarkup:
-    """Главная клавиатура - упрощенная"""
+    """Главная клавиатура - упрощенная с мобильной оптимизацией"""
     keyboard = InlineKeyboardMarkup(row_width=3)
     keyboard.add(
         InlineKeyboardButton("➕ Добавить", callback_data="add_menu"),
         InlineKeyboardButton("📅 Показать", callback_data="show_menu"),
         InlineKeyboardButton("⚙️ Настройки", callback_data="settings_menu")
+    )
+    # Быстрые действия для мобильных устройств
+    keyboard.add(
+        InlineKeyboardButton("🌅 Сегодня", callback_data="show_today"),
+        InlineKeyboardButton("📊 Неделя", callback_data="show_week"),
+        InlineKeyboardButton("🤖 Рекомендации", callback_data="smart_recommendations")
     )
     return keyboard
 
@@ -722,8 +828,8 @@ def get_add_menu_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("💼 Работа", callback_data="add_work_quick")
     )
     keyboard.add(
-        InlineKeyboardButton("📊 Рабочая сессия", callback_data="add_work_session"),
-        InlineKeyboardButton("➕ Событие", callback_data="add_event")
+        InlineKeyboardButton("➕ Событие", callback_data="add_event"),
+        InlineKeyboardButton("📊 Т-Мобайл сессия", callback_data="add_work_session")
     )
     keyboard.add(InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main"))
     return keyboard
@@ -738,6 +844,9 @@ def get_show_menu_keyboard() -> InlineKeyboardMarkup:
     keyboard.add(
         InlineKeyboardButton("📈 Статистика", callback_data="statistics"),
         InlineKeyboardButton("🌅 Сегодня", callback_data="show_today")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🤖 Умные рекомендации", callback_data="smart_recommendations")
     )
     keyboard.add(InlineKeyboardButton("⬅️ Главное меню", callback_data="back_to_main"))
     return keyboard
@@ -824,6 +933,7 @@ def cmd_help(message: Message):
 • `/today` - что у вас сегодня
 • `/work_stats` - статистика работы (за месяц или декаду)
 • `/ai_plan ПРОГРЕСС ЦЕЛЬ ДАТА` - ИИ-планировщик работы
+• `/recommendations` - умные рекомендации ИИ
 • `/help` - эта справка
 
 **Формат добавления события:**
@@ -929,6 +1039,14 @@ def cmd_work_stats(message: Message):
     result = schedule_manager.get_work_statistics(user_id, period)
     bot.reply_to(message, result, reply_markup=get_main_keyboard())
     logger.info(f"📊 Пользователь {user_id} запросил статистику работы за {period}")
+
+@bot.message_handler(commands=['recommendations'])
+def cmd_recommendations(message: Message):
+    """Обработчик команды /recommendations - умные рекомендации"""
+    user_id = message.from_user.id
+    result = schedule_manager.get_smart_recommendations(user_id)
+    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+    logger.info(f"🤖 Пользователь {user_id} использовал команду /recommendations")
 
 @bot.message_handler(commands=['ai_plan'])
 def cmd_ai_plan(message: Message):
@@ -1220,16 +1338,21 @@ def handle_text(message: Message):
             
         elif state.startswith('waiting_for_study_subject_'):
             # Шаг 3: Получили название предмета, добавляем событие
-            parts = state.split('_', 3)[3:]  # Извлекаем дату и время
-            if len(parts) >= 2:
-                date_text = parts[0]
-                time_text = parts[1]
-                subject = message.text
-                
-                result = schedule_manager.add_event(user_id, date_text, time_text, subject, "study")
-                bot.reply_to(message, result, reply_markup=get_main_keyboard())
-                logger.info(f"📚 Пользователь {user_id} добавил учебное событие: {date_text} {time_text} {subject}")
-            else:
+            try:
+                # Формат: waiting_for_study_subject_2 сентября_13:55-15:50
+                state_parts = state.split('_', 4)  # Разбиваем на 4 части
+                if len(state_parts) >= 4:
+                    date_text = state_parts[3]  # Дата
+                    time_text = state_parts[4]  # Время
+                    subject = message.text
+                    
+                    result = schedule_manager.add_event(user_id, date_text, time_text, subject, "study")
+                    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                    logger.info(f"📚 Пользователь {user_id} добавил учебное событие: {date_text} {time_text} {subject}")
+                else:
+                    bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
+            except Exception as e:
+                logger.error(f"❌ Ошибка при добавлении учебного события: {e}")
                 bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
             
             del user_states[user_id]
@@ -1268,16 +1391,21 @@ def handle_text(message: Message):
             
         elif state.startswith('waiting_for_work_description_'):
             # Шаг 3: Получили описание работы, добавляем событие
-            parts = state.split('_', 3)[3:]  # Извлекаем дату и время
-            if len(parts) >= 2:
-                date_text = parts[0]
-                time_text = parts[1]
-                description = message.text
-                
-                result = schedule_manager.add_event(user_id, date_text, time_text, description, "work")
-                bot.reply_to(message, result, reply_markup=get_main_keyboard())
-                logger.info(f"💼 Пользователь {user_id} добавил рабочее событие: {date_text} {time_text} {description}")
-            else:
+            try:
+                # Формат: waiting_for_work_description_2 сентября_09:00-17:00
+                state_parts = state.split('_', 4)  # Разбиваем на 4 части
+                if len(state_parts) >= 4:
+                    date_text = state_parts[3]  # Дата
+                    time_text = state_parts[4]  # Время
+                    description = message.text
+                    
+                    result = schedule_manager.add_event(user_id, date_text, time_text, description, "work")
+                    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                    logger.info(f"💼 Пользователь {user_id} добавил рабочее событие: {date_text} {time_text} {description}")
+                else:
+                    bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
+            except Exception as e:
+                logger.error(f"❌ Ошибка при добавлении рабочего события: {e}")
                 bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
             
             del user_states[user_id]
@@ -1364,6 +1492,16 @@ def process_callback(call: CallbackQuery):
             reply_markup=get_back_keyboard()
         )
         logger.info(f"🌅 Пользователь {user_id} запросил расписание на сегодня")
+    
+    elif data == "smart_recommendations":
+        result = schedule_manager.get_smart_recommendations(user_id)
+        bot.edit_message_text(
+            result,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"🤖 Пользователь {user_id} запросил умные рекомендации")
     
     elif data == "add_event":
         user_states[user_id] = 'waiting_for_event'
@@ -1587,7 +1725,7 @@ def process_callback(call: CallbackQuery):
 **➕ Меню добавления:**
 • **📚 Учеба** - пошаговое добавление учебных занятий
 • **💼 Работа** - пошаговое добавление рабочих задач
-• **📊 Рабочая сессия** - Т-Мобайл с подсчетом коммуникаций
+• **📊 Т-Мобайл сессия** - работа с подсчетом коммуникаций
 • **➕ Событие** - быстрое добавление любого события
 
 **📅 Меню просмотра:**
@@ -1595,6 +1733,12 @@ def process_callback(call: CallbackQuery):
 • **📊 На неделю** - обзор всех событий на неделю
 • **📈 Статистика** - подробная аналитика расписания
 • **🌅 Сегодня** - что у вас сегодня
+• **🤖 Умные рекомендации** - ИИ-анализ и советы
+
+**📱 Мобильная оптимизация:**
+• Быстрые действия в главном меню
+• Горизонтальные свайпы между разделами
+• Адаптивные размеры кнопок
 
 **Команды:**
 • `/add` - быстрое добавление события
