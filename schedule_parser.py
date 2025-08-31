@@ -78,7 +78,7 @@ class ScheduleParser:
             return ""
     
     def parse_schedule(self, text: str) -> Dict:
-        """Парсит расписание из текста с учетом структуры PDF"""
+        """Парсит расписание из текста с учетом структуры потоковых занятий"""
         schedule = {}
         
         # Отладочная информация
@@ -91,8 +91,6 @@ class ScheduleParser:
         logging.info(f"Всего строк: {len(lines)}")
         
         current_date = None
-        current_main_time = None
-        temp_lessons = {}  # Временные уроки до нахождения даты
         
         # Проходим по строкам
         for i, line in enumerate(lines):
@@ -105,28 +103,10 @@ class ScheduleParser:
             # Ищем дату (формат: DD.MM.YYYY)
             date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', line)
             if date_match:
-                new_date = date_match.group(1)
-                
-                # Если у нас есть временные уроки, переносим их на новую дату
-                if temp_lessons:
-                    logging.info(f"🔄 Переношу {len(temp_lessons)} временных уроков на {new_date}")
-                    if new_date not in schedule:
-                        schedule[new_date] = {}
-                    schedule[new_date].update(temp_lessons)
-                    temp_lessons.clear()
-                
-                current_date = new_date
+                current_date = date_match.group(1)
                 if current_date not in schedule:
                     schedule[current_date] = {}
                 logging.info(f"✅ Найдена дата: {current_date}")
-                continue
-            
-            # Ищем основное время (формат: HH:MM - HH:MM)
-            main_time_match = re.search(r'(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2})', line)
-            if main_time_match:
-                start_hour, start_min, end_hour, end_min = main_time_match.groups()
-                current_main_time = f"{start_hour}:{start_min}-{end_hour}:{end_min}"
-                logging.info(f"✅ Найдено основное время: {current_main_time}")
                 continue
             
             # Ищем время в уроке (формат: HH-MM) - это приоритет!
@@ -138,115 +118,51 @@ class ScheduleParser:
                 
                 # Если нет даты, ищем в следующих строках
                 if not current_date:
-                    # Ищем дату в следующих строках
-                    for j in range(1, 10):  # Проверяем следующие 10 строк
-                        if i + j < len(lines):
-                            next_line = lines[i + j].strip()
-                            date_in_next = re.search(r'(\d{2}\.\d{2}\.\d{4})', next_line)
-                            if date_in_next:
-                                current_date = date_in_next.group(1)
-                                if current_date not in schedule:
-                                    schedule[current_date] = {}
-                                logging.info(f"🔍 Найдена дата в следующих строках: {current_date}")
-                                break
+                    found_date = self._find_date_in_next_lines(lines, i+1, 10)
+                    if found_date:
+                        current_date = found_date
+                        if current_date not in schedule:
+                            schedule[current_date] = {}
+                    else:
+                        # Создаем временную дату
+                        current_date = "01.09.2025"
+                        if current_date not in schedule:
+                            schedule[current_date] = {}
                 
-                # Создаем запись для урока
+                # Извлекаем предметы для группы 302 Ф из правой колонки
+                subjects = self._extract_subjects_for_302f(line)
+                
+                # Ищем преподавателей и аудитории в следующих строках
+                instructor_auditorium = self._extract_instructor_auditorium(lines, i+1)
+                
                 lesson_data = {
-                    'subject': '',
-                    'instructor': '',
-                    'auditorium': ''
+                    'subject': subjects,
+                    'instructor': instructor_auditorium.get('instructor', ''),
+                    'auditorium': instructor_auditorium.get('auditorium', '')
                 }
                 
-                # Извлекаем предмет (убираем время из начала)
-                subject = line.replace(f"{hour}-{minute}", "").strip()
-                lesson_data['subject'] = subject
-                logging.info(f"📚 Извлечен предмет: '{subject}'")
-                
-                # Следующие строки должны содержать преподавателя и аудиторию
-                # Проверяем следующие 2 строки
-                for j in range(1, 3):
-                    if i + j < len(lines):
-                        next_line = lines[i + j].strip()
-                        logging.info(f"🔍 Проверяю строку {i+j+1}: '{next_line}'")
-                        
-                        if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
-                            # Это либо преподаватель, либо аудитория
-                            if not lesson_data['instructor']:
-                                lesson_data['instructor'] = next_line
-                                logging.info(f"👨‍🏫 Извлечен преподаватель: '{next_line}'")
-                            elif not lesson_data['auditorium']:
-                                lesson_data['auditorium'] = next_line
-                                logging.info(f"🏢 Извлечена аудитория: '{next_line}'")
-                                break
+                # Проверяем, что предмет не пустой
+                if subjects and subjects.strip():
+                    if current_date and current_date in schedule:
+                        if lesson_time not in schedule[current_date]:
+                            schedule[current_date][lesson_time] = lesson_data
+                            logging.info(f"📝 Создана запись для времени {lesson_time} в дате {current_date}")
                         else:
-                            logging.info(f"❌ Строка {i+j+1} не подходит для преподавателя/аудитории")
+                            logging.info(f"⚠️ Время {lesson_time} уже существует в дате {current_date}")
                     else:
-                        logging.info(f"❌ Строка {i+j+1} выходит за пределы")
-                
-                # Сохраняем урок
-                if current_date and current_date in schedule:
-                    if lesson_time not in schedule[current_date]:
-                        schedule[current_date][lesson_time] = lesson_data
-                        logging.info(f"📝 Создана запись для времени {lesson_time} в дате {current_date}")
-                    else:
-                        logging.info(f"⚠️ Время {lesson_time} уже существует в дате {current_date}")
+                        logging.info(f"❌ Нет текущей даты для времени {lesson_time}")
                 else:
-                    # Если дата еще не создана, сохраняем во временные уроки
-                    temp_lessons[lesson_time] = lesson_data
-                    logging.info(f"📝 Сохранен временный урок для времени {lesson_time}")
+                    logging.info(f"⚠️ Предмет пустой для времени {lesson_time}, пропускаю")
                 
                 continue
             
-            # Если нет времени в уроке, но есть основное время и дата
-            if current_date and current_main_time and '302' in line and not re.search(r'\d{2}-\d{2}', line):
-                # Это может быть потоковое занятие без времени в уроке
-                logging.info(f"🔄 Найдена строка с 302 без времени: {line}")
-                
-                # Создаем запись с основным временем
-                if current_main_time not in schedule[current_date]:
-                    schedule[current_date][current_main_time] = {
-                        'subject': '',
-                        'instructor': '',
-                        'auditorium': ''
-                    }
-                    logging.info(f"📝 Создана запись для основного времени {current_main_time}")
-                
-                # Извлекаем предмет
-                subject = line.replace('302', '').strip()
-                schedule[current_date][current_main_time]['subject'] = subject
-                logging.info(f"📚 Извлечен предмет (потоковый): '{subject}'")
-                
-                # Следующие строки - преподаватель и аудитория
-                for j in range(1, 3):
-                    if i + j < len(lines):
-                        next_line = lines[i + j].strip()
-                        logging.info(f"🔍 Проверяю строку {i+j+1} для потокового: '{next_line}'")
-                        
-                        if next_line and not re.search(r'\d{2}:\d{2}', next_line) and not re.search(r'\d{2}\.\d{2}\.\d{4}', next_line):
-                            if not schedule[current_date][current_main_time]['instructor']:
-                                schedule[current_date][current_main_time]['instructor'] = next_line
-                                logging.info(f"👨‍🏫 Извлечен преподаватель (потоковый): '{next_line}'")
-                            elif not schedule[current_date][current_main_time]['auditorium']:
-                                schedule[current_date][current_main_time]['auditorium'] = next_line
-                                logging.info(f"🏢 Извлечена аудитория (потоковый): '{next_line}'")
-                                break
-                        else:
-                            logging.info(f"❌ Строка {i+j+1} не подходит для потокового")
-                    else:
-                        logging.info(f"❌ Строка {i+j+1} выходит за пределы для потокового")
-        
-        # В конце переносим оставшиеся временные уроки на первую дату
-        if temp_lessons and schedule:
-            first_date = list(schedule.keys())[0]
-            logging.info(f"🔄 Переношу {len(temp_lessons)} оставшихся временных уроков на {first_date}")
-            if first_date not in schedule:
-                schedule[first_date] = {}
-            schedule[first_date].update(temp_lessons)
-        elif temp_lessons and not schedule:
-            # Если нет дат вообще, создаем временную дату
-            temp_date = "01.09.2025"
-            schedule[temp_date] = temp_lessons
-            logging.info(f"🔄 Создаю временную дату {temp_date} для {len(temp_lessons)} уроков")
+            # Ищем основное время (формат: HH:MM - HH:MM)
+            main_time_match = re.search(r'(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2})', line)
+            if main_time_match:
+                start_hour, start_min, end_hour, end_min = main_time_match.groups()
+                current_main_time = f"{start_hour}:{start_min}-{end_hour}:{end_min}"
+                logging.info(f"✅ Найдено основное время: {current_main_time}")
+                continue
         
         # Проверяем, что расписание не пустое
         total_lessons = sum(len(day_schedule) for day_schedule in schedule.values())
@@ -255,6 +171,88 @@ class ScheduleParser:
         logging.info(f"📊 Итоговое расписание: {schedule}")
         logging.info(f"=== КОНЕЦ ОТЛАДКИ ===")
         return schedule
+    
+    def _extract_subjects_for_302f(self, line: str) -> str:
+        """Извлекает предметы для группы 302 Ф из строки"""
+        # Убираем время из начала строки
+        line = re.sub(r'^\d{2}-\d{2}\s*', '', line)
+        
+        # Ищем предметы для группы 302 Ф (правая колонка)
+        if '302 Ф' in line:
+            # Берем правую часть после "302 Ф"
+            parts = line.split('302 Ф')
+            if len(parts) > 1:
+                subject_part = parts[1].strip()
+                # Убираем аудитории (начинающиеся с цифр)
+                subject_part = re.sub(r'\d+\s+(?:Советская|Полесская|Ломоносова)', '', subject_part)
+                subject_part = re.sub(r'Спортивный зал', '', subject_part)
+                subject_part = re.sub(r'\s+', ' ', subject_part).strip()
+                logging.info(f"📚 Извлечен предмет для 302 Ф: '{subject_part}'")
+                return subject_part
+        
+        # Если "302 Ф" не найден, но есть "301 Ф", берем правую часть
+        if '301 Ф' in line:
+            parts = line.split('301 Ф')
+            if len(parts) > 1:
+                # Берем правую часть и ищем предметы для 302 Ф
+                right_part = parts[1].strip()
+                # Убираем аудитории
+                right_part = re.sub(r'\d+\s+(?:Советская|Полесская|Ломоносова)', '', right_part)
+                right_part = re.sub(r'Спортивный зал', '', right_part)
+                right_part = re.sub(r'\s+', ' ', right_part).strip()
+                logging.info(f"📚 Извлечен предмет из правой части: '{right_part}'")
+                return right_part
+        
+        # Если ничего не найдено, берем всю строку и убираем аудитории
+        line = re.sub(r'\d+\s+(?:Советская|Полесская|Ломоносова)', '', line)
+        line = re.sub(r'Спортивный зал', '', line)
+        line = re.sub(r'\s+', ' ', line).strip()
+        
+        logging.info(f"📚 Извлечен предмет: '{line}'")
+        return line
+    
+    def _extract_instructor_auditorium(self, lines: List[str], start_line: int) -> Dict:
+        """Извлекает преподавателя и аудиторию из следующих строк"""
+        result = {'instructor': '', 'auditorium': ''}
+        
+        # Проверяем следующие 2 строки
+        for i in range(start_line, min(start_line + 2, len(lines))):
+            line = lines[i].strip()
+            if not line:
+                continue
+                
+            logging.info(f"🔍 Проверяю строку {i+1}: '{line}'")
+            
+            # Поиск преподавателя (ФИО в формате "Фамилия И.О.")
+            instructor_match = re.search(r'([А-Я][а-я]+\s+[А-Я]\.[А-Я]\.)', line)
+            if instructor_match and not result['instructor']:
+                result['instructor'] = instructor_match.group(1)
+                logging.info(f"👨‍🏫 Извлечен преподаватель: '{result['instructor']}'")
+                continue
+            
+            # Поиск аудитории
+            auditorium_match = re.search(r'(?:Аудит\.\s*)?(\d+\s+(?:Советская|Полесская|Ломоносова)|Спортивный зал)', line)
+            if auditorium_match and not result['auditorium']:
+                result['auditorium'] = auditorium_match.group(1)
+                logging.info(f"🏢 Извлечена аудитория: '{result['auditorium']}'")
+                continue
+            
+            # Если строка не подходит для преподавателя/аудитории
+            if not instructor_match and not auditorium_match:
+                logging.info(f"❌ Строка {i+1} не подходит для преподавателя/аудитории")
+        
+        return result
+    
+    def _find_date_in_next_lines(self, lines: List[str], start_line: int, max_lines: int) -> Optional[str]:
+        """Ищет дату в следующих строках"""
+        for i in range(start_line, min(start_line + max_lines, len(lines))):
+            line = lines[i].strip()
+            date_match = re.search(r'(\d{2}\.\d{2}\.\d{4})', line)
+            if date_match:
+                found_date = date_match.group(1)
+                logging.info(f"🔍 Найдена дата в следующих строках: {found_date}")
+                return found_date
+        return None
     
     def get_schedule_for_date(self, target_date: str) -> Dict:
         """Получает расписание на конкретную дату"""
