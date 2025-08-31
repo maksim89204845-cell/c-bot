@@ -407,6 +407,243 @@ class ScheduleManager:
             result += "• Много рабочих событий - не забывайте про развитие!\n"
         
         return result
+    
+    def add_work_session(self, user_id: int, date_text: str, time_text: str, communications: int, session_type: str = "support") -> str:
+        """Добавляет рабочую сессию с количеством коммуникаций"""
+        if user_id not in self.schedules:
+            self.schedules[user_id] = {}
+        
+        # Парсим дату
+        date_key = self.parse_date(date_text)
+        
+        if date_key not in self.schedules[user_id]:
+            self.schedules[user_id][date_key] = []
+        
+        # Генерируем уникальный ID
+        import uuid
+        session_id = str(uuid.uuid4())[:8]
+        
+        # Создаем рабочую сессию
+        work_session = {
+            'id': session_id,
+            'time': time_text.strip(),
+            'type': 'work_session',
+            'communications': communications,
+            'session_type': session_type,
+            'productivity': communications / self._parse_hours(time_text) if self._parse_hours(time_text) > 0 else 0,
+            'added_at': datetime.now().isoformat()
+        }
+        
+        # Добавляем сессию и сортируем по времени
+        self.schedules[user_id][date_key].append(work_session)
+        self.schedules[user_id][date_key].sort(key=lambda x: x['time'])
+        
+        self.save_schedules()
+        
+        return f"✅ Рабочая сессия добавлена на {date_text} в {time_text}\n📊 Коммуникаций: {communications}\n🆔 ID: {session_id}"
+    
+    def _parse_hours(self, time_text: str) -> float:
+        """Парсит время и возвращает количество часов"""
+        try:
+            # Формат: "09:00-17:00" или "9:00-17:00"
+            parts = time_text.split('-')
+            if len(parts) == 2:
+                start_time = datetime.strptime(parts[0].strip(), '%H:%M')
+                end_time = datetime.strptime(parts[1].strip(), '%H:%M')
+                
+                # Вычисляем разность
+                duration = end_time - start_time
+                hours = duration.total_seconds() / 3600
+                return max(hours, 0.1)  # Минимум 0.1 часа
+        except:
+            pass
+        return 1.0  # По умолчанию 1 час
+    
+    def get_work_statistics(self, user_id: int, period: str = "month") -> str:
+        """Получает статистику по работе"""
+        if user_id not in self.schedules:
+            return "📝 У вас пока нет рабочих сессий."
+        
+        # Определяем период
+        today = datetime.now()
+        if period == "decade":
+            # Текущая декада (1-10, 11-20, 21-31)
+            day = today.day
+            if day <= 10:
+                start_date = today.replace(day=1)
+                end_date = today.replace(day=10)
+            elif day <= 20:
+                start_date = today.replace(day=11)
+                end_date = today.replace(day=20)
+            else:
+                start_date = today.replace(day=21)
+                end_date = today.replace(day=31)
+        elif period == "month":
+            start_date = today.replace(day=1)
+            end_date = today.replace(day=31)
+        else:
+            return "❌ Неизвестный период. Используйте 'decade' или 'month'"
+        
+        # Собираем статистику
+        total_communications = 0
+        total_hours = 0
+        sessions_count = 0
+        
+        for date_key, events in self.schedules[user_id].items():
+            try:
+                date_obj = datetime.strptime(date_key, '%Y-%m-%d')
+                if start_date <= date_obj <= end_date:
+                    for event in events:
+                        if event.get('type') == 'work_session':
+                            total_communications += event.get('communications', 0)
+                            total_hours += self._parse_hours(event.get('time', '1:00'))
+                            sessions_count += 1
+            except:
+                pass
+        
+        if sessions_count == 0:
+            return f"📊 За {period} у вас пока нет рабочих сессий."
+        
+        # Цели
+        monthly_goal = 1000
+        decade_goal = 300
+        
+        # Средняя производительность
+        avg_productivity = total_communications / total_hours if total_hours > 0 else 0
+        
+        # Прогноз
+        if period == "month":
+            days_in_month = 31
+            days_passed = min(today.day, days_in_month)
+            progress_percent = (days_passed / days_in_month) * 100
+            
+            if progress_percent > 0:
+                projected_monthly = (total_communications / progress_percent) * 100
+            else:
+                projected_monthly = 0
+        else:
+            projected_monthly = 0
+        
+        result = f"📊 **Статистика работы за {period}:**\n\n"
+        result += f"📈 **Показатели:**\n"
+        result += f"• Всего коммуникаций: {total_communications}\n"
+        result += f"• Рабочих сессий: {sessions_count}\n"
+        result += f"• Общее время: {total_hours:.1f} часов\n"
+        result += f"• Средняя производительность: {avg_productivity:.1f} комм/час\n\n"
+        
+        # Анализ целей
+        if period == "decade":
+            result += f"🎯 **Цель декады:** {decade_goal} коммуникаций\n"
+            if total_communications >= decade_goal:
+                result += f"✅ Цель достигнута! Отлично работаете!\n"
+            else:
+                remaining = decade_goal - total_communications
+                result += f"📝 Осталось: {remaining} коммуникаций\n"
+        elif period == "month":
+            result += f"🎯 **Цель месяца:** {monthly_goal} коммуникаций\n"
+            if total_communications >= monthly_goal:
+                result += f"✅ Цель достигнута! Вы молодец!\n"
+            else:
+                remaining = monthly_goal - total_communications
+                result += f"📝 Осталось: {remaining} коммуникаций\n"
+            
+            if projected_monthly > 0:
+                result += f"📊 Прогноз на месяц: {projected_monthly:.0f} коммуникаций\n"
+        
+        # Рекомендации
+        result += "\n💡 **Рекомендации:**\n"
+        if avg_productivity > 15:
+            result += "• Высокая производительность! Не забудьте про отдых.\n"
+        elif avg_productivity < 10:
+            result += "• Можно увеличить темп, но не переусердствуйте.\n"
+        else:
+            result += "• Оптимальная производительность! Держите темп.\n"
+        
+        if total_hours > 160:  # 8 часов * 20 дней
+            result += "• Много рабочих часов! Планируйте отдых.\n"
+        
+        return result
+    
+    def get_smart_work_schedule(self, user_id: int, target_communications: int, date_text: str) -> str:
+        """Генерирует умное рабочее расписание"""
+        if user_id not in self.schedules:
+            self.schedules[user_id] = {}
+        
+        date_key = self.parse_date(date_text)
+        
+        # Проверяем учебное расписание на эту дату
+        study_events = []
+        if date_key in self.schedules[user_id]:
+            study_events = [event for event in self.schedules[user_id][date_key] if event.get('type') == 'study']
+        
+        # Рассчитываем оптимальное время работы
+        target_hours = target_communications / 13  # 13 комм/час
+        available_hours = 8  # Максимум 8 часов в день
+        
+        # Учитываем учебные занятия
+        study_hours = 0
+        for event in study_events:
+            study_hours += self._parse_hours(event.get('time', '1:00'))
+        
+        available_hours -= study_hours
+        
+        if available_hours < target_hours:
+            result = f"⚠️ **Внимание:** На {date_text} недостаточно времени!\n\n"
+            result += f"📚 Учебные занятия: {study_hours:.1f} часов\n"
+            result += f"⏰ Доступно для работы: {available_hours:.1f} часов\n"
+            result += f"📊 Нужно для {target_communications} комм: {target_hours:.1f} часов\n\n"
+            result += f"💡 **Рекомендации:**\n"
+            result += f"• Перенесите часть работы на другой день\n"
+            result += f"• Увеличьте производительность до {target_communications/available_hours:.1f} комм/час\n"
+            result += f"• Сократите учебные занятия\n"
+        else:
+            result = f"✅ **Оптимальное расписание на {date_text}:**\n\n"
+            result += f"📚 Учебные занятия: {study_hours:.1f} часов\n"
+            result += f"💼 Рабочее время: {target_hours:.1f} часов\n"
+            result += f"⏰ Доступно: {available_hours:.1f} часов\n\n"
+            
+            # Генерируем временные слоты
+            if study_events:
+                result += f"📅 **Рекомендуемый порядок:**\n"
+                for i, event in enumerate(study_events, 1):
+                    result += f"{i}. {event['time']} - {event['activity']}\n"
+                result += f"\n💼 **Рабочие сессии:**\n"
+            
+            # Разбиваем работу на сессии
+            sessions = self._split_work_sessions(target_hours, study_events)
+            for i, session in enumerate(sessions, 1):
+                result += f"{i}. {session['time']} - {session['communications']} коммуникаций\n"
+            
+            result += f"\n💡 **Советы:**\n"
+            result += f"• Делайте перерывы каждые 2 часа\n"
+            result += f"• Планируйте сложные задачи на пик продуктивности\n"
+            result += f"• Не забудьте про отдых между сессиями\n"
+        
+        return result
+    
+    def _split_work_sessions(self, total_hours: float, study_events: list) -> list:
+        """Разбивает рабочее время на оптимальные сессии"""
+        sessions = []
+        
+        # Оптимальная длительность сессии: 2-3 часа
+        if total_hours <= 2:
+            sessions.append({
+                'time': '09:00-11:00',
+                'communications': int(total_hours * 13)
+            })
+        elif total_hours <= 4:
+            sessions.extend([
+                {'time': '09:00-11:00', 'communications': 26},
+                {'time': '14:00-16:00', 'communications': int((total_hours - 2) * 13)}
+            ])
+        else:
+            sessions.extend([
+                {'time': '09:00-11:00', 'communications': 26},
+                {'time': '14:00-16:00', 'communications': 26},
+                {'time': '16:30-18:30', 'communications': int((total_hours - 4) * 13)}
+            ])
+        
+        return sessions
 
 # Инициализация менеджера расписания
 schedule_manager = ScheduleManager()
@@ -437,6 +674,14 @@ def get_main_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton("📈 Статистика", callback_data="statistics")
     )
     keyboard.add(
+        InlineKeyboardButton("💼 Рабочая сессия", callback_data="add_work_session"),
+        InlineKeyboardButton("📊 Статистика работы", callback_data="work_stats")
+    )
+    keyboard.add(
+        InlineKeyboardButton("🤖 ИИ-планировщик", callback_data="ai_planner"),
+        InlineKeyboardButton("📚 Умные напоминания", callback_data="smart_reminders")
+    )
+    keyboard.add(
         InlineKeyboardButton("🗑️ Очистить дату", callback_data="clear_date"),
         InlineKeyboardButton("❓ Помощь", callback_data="help")
     )
@@ -458,17 +703,29 @@ def cmd_start(message: Message):
     welcome_text = f"""
 👋 Привет, {user_name}!
 
-Я ваш персональный помощник по расписанию! 🗓️
+Я ваш персональный ИИ-помощник по расписанию! 🗓️🤖
 
 Что я умею:
 • ➕ Добавлять события на конкретные даты
 • 📅 Показывать расписание на дату/неделю
 • 🔍 Анализировать ваше расписание
-• 💡 Давать полезные советы
-• 🗑️ Очищать расписание по датам
+• ✏️ Редактировать события
+• 📈 Подробная статистика
+• 💼 Рабочие сессии Т-Мобайл с подсчетом коммуникаций
+• 🤖 ИИ-планировщик работы с учетом учебы
+• 📚 Пошаговые помощники для добавления
+• 🔔 Ежедневные напоминания
+• 💡 Умные советы по оптимизации
 
-Пример добавления:
-"2 сентября 13:55-15:50 Реабилитация и абилитация"
+**Цели работы Т-Мобайл:**
+🎯 Месяц: 1000 коммуникаций
+🎯 Декада: 300 коммуникаций
+📊 Производительность: 13 комм/час
+
+Примеры использования:
+• "2 сентября 13:55-15:50 Реабилитация и абилитация"
+• "2 сентября 09:00-17:00 104" (рабочая сессия)
+• "/ai_plan 100 2 сентября" (ИИ-планировщик)
 
 Выберите действие:
 """
@@ -488,12 +745,18 @@ def cmd_help(message: Message):
 4. **🔍 Анализ** - получайте умные советы по вашему расписанию
 5. **✏️ Редактировать** - измените время, описание или дату события
 6. **📈 Статистика** - подробная аналитика вашего расписания
-7. **🗑️ Очистить дату** - удалите все события на конкретную дату
+7. **💼 Рабочая сессия** - добавьте рабочую сессию с количеством коммуникаций
+8. **📊 Статистика работы** - анализ работы по декадам и месяцам
+9. **🤖 ИИ-планировщик** - умное планирование работы с учетом учебы
+10. **📚 Умные напоминания** - пошаговое добавление учебы и работы
+11. **🗑️ Очистить дату** - удалите все события на конкретную дату
 
 **Команды:**
 • `/add` - быстрое добавление события
 • `/show` - показать расписание на неделю
 • `/today` - что у вас сегодня
+• `/work_stats` - статистика работы (за месяц или декаду)
+• `/ai_plan КОЛИЧЕСТВО_КОММ ДАТА` - ИИ-планировщик работы
 • `/help` - эта справка
 
 **Формат добавления события:**
@@ -503,6 +766,20 @@ def cmd_help(message: Message):
 • "2 сентября 13:55-15:50 Реабилитация и абилитация"
 • "3 сентября 09:00-10:30 Математика, аудитория 101"
 • "4 сентября 16:30-17:00 Работа в Т-Мобайл"
+
+**Рабочие сессии (Т-Мобайл):**
+Дата Время Количество_коммуникаций
+
+**Примеры:**
+• "2 сентября 09:00-17:00 104"
+• "3 сентября 14:00-18:00 52"
+
+**ИИ-планировщик:**
+Количество_коммуникаций Дата
+
+**Примеры:**
+• "100 2 сентября"
+• "150 5 сентября"
 
 **Редактирование:**
 • "время 14:00-15:30" - изменить время
@@ -514,7 +791,12 @@ def cmd_help(message: Message):
 • "15 октября"
 • "3 ноября"
 
-Бот автоматически определит тип события (учебное/рабочее) и отсортирует по времени! ⏰
+**Цели работы Т-Мобайл:**
+• 🎯 Месяц: 1000 коммуникаций
+• 🎯 Декада: 300 коммуникаций
+• 📊 Производительность: 13 комм/час
+
+Бот автоматически определит тип события, отсортирует по времени и поможет достичь целей! ⏰🚀
 """
     
     bot.reply_to(message, help_text, reply_markup=get_back_keyboard())
@@ -561,6 +843,56 @@ def cmd_today(message: Message):
     
     bot.reply_to(message, result, reply_markup=get_main_keyboard())
     logger.info(f"📅 Пользователь {user_id} использовал команду /today")
+
+@bot.message_handler(commands=['work_stats'])
+def cmd_work_stats(message: Message):
+    """Обработчик команды /work_stats - статистика работы"""
+    user_id = message.from_user.id
+    
+    # Парсим аргументы команды
+    args = message.text.split()
+    period = "month"  # По умолчанию месяц
+    
+    if len(args) > 1:
+        if args[1].lower() in ['decade', 'декада']:
+            period = "decade"
+        elif args[1].lower() in ['month', 'месяц']:
+            period = "month"
+    
+    result = schedule_manager.get_work_statistics(user_id, period)
+    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+    logger.info(f"📊 Пользователь {user_id} запросил статистику работы за {period}")
+
+@bot.message_handler(commands=['ai_plan'])
+def cmd_ai_plan(message: Message):
+    """Обработчик команды /ai_plan - ИИ-планировщик"""
+    user_id = message.from_user.id
+    
+    # Парсим аргументы: /ai_plan 100 2 сентября
+    args = message.text.split()
+    if len(args) >= 3:
+        try:
+            target_communications = int(args[1])
+            date_text = " ".join(args[2:])
+            result = schedule_manager.get_smart_work_schedule(user_id, target_communications, date_text)
+            bot.reply_to(message, result, reply_markup=get_main_keyboard())
+            logger.info(f"🤖 Пользователь {user_id} использовал ИИ-планировщик для {target_communications} комм на {date_text}")
+        except ValueError:
+            bot.reply_to(
+                message,
+                "❌ Неверный формат! Используйте:\n"
+                "/ai_plan КОЛИЧЕСТВО_КОММУНИКАЦИЙ ДАТА\n\n"
+                "Пример: /ai_plan 100 2 сентября",
+                reply_markup=get_main_keyboard()
+            )
+    else:
+        bot.reply_to(
+            message,
+            "❌ Неверный формат! Используйте:\n"
+            "/ai_plan КОЛИЧЕСТВО_КОММУНИКАЦИЙ ДАТА\n\n"
+            "Пример: /ai_plan 100 2 сентября",
+            reply_markup=get_main_keyboard()
+        )
 
 # Обработчик голосовых сообщений
 @bot.message_handler(content_types=['voice'])
@@ -707,6 +1039,180 @@ def handle_text(message: Message):
             
             del user_states[user_id]
             
+        elif state == 'waiting_for_work_session':
+            # Парсим рабочую сессию: "2 сентября 09:00-17:00 104"
+            try:
+                parts = message.text.strip().split()
+                if len(parts) >= 4:
+                    # Первые 2 части - дата (например: "2 сентября")
+                    date_part = f"{parts[0]} {parts[1]}"
+                    # 3-я часть - время (например: "09:00-17:00")
+                    time_part = parts[2]
+                    # 4-я часть - количество коммуникаций
+                    communications = int(parts[3])
+                    
+                    result = schedule_manager.add_work_session(user_id, date_part, time_part, communications)
+                    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                    logger.info(f"💼 Пользователь {user_id} добавил рабочую сессию: {date_part} {time_part} {communications} комм")
+                else:
+                    bot.reply_to(message, 
+                        "❌ Неверный формат! Используйте:\n"
+                        "Дата Время Количество_коммуникаций\n\n"
+                        "Пример: '2 сентября 09:00-17:00 104'",
+                        reply_markup=get_main_keyboard())
+                    logger.warning(f"❌ Пользователь {user_id} ввел неверный формат рабочей сессии: {message.text}")
+                    return
+            except ValueError:
+                bot.reply_to(message, 
+                    "❌ Ошибка! Количество коммуникаций должно быть числом.\n\n"
+                    "Пример: '2 сентября 09:00-17:00 104'",
+                    reply_markup=get_main_keyboard())
+                logger.error(f"❌ Ошибка при добавлении рабочей сессии пользователем {user_id}: неверное число")
+                return
+            except Exception as e:
+                bot.reply_to(message, 
+                    "❌ Ошибка при добавлении рабочей сессии. Проверьте формат:\n"
+                    "Дата Время Количество_коммуникаций\n\n"
+                    "Пример: '2 сентября 09:00-17:00 104'",
+                    reply_markup=get_main_keyboard())
+                logger.error(f"❌ Ошибка при добавлении рабочей сессии пользователем {user_id}: {e}")
+                return
+            finally:
+                del user_states[user_id]
+            
+        elif state == 'waiting_for_ai_plan':
+            # Парсим ИИ-план: "100 2 сентября"
+            try:
+                parts = message.text.strip().split()
+                if len(parts) >= 2:
+                    target_communications = int(parts[0])
+                    date_text = " ".join(parts[1:])
+                    
+                    result = schedule_manager.get_smart_work_schedule(user_id, target_communications, date_text)
+                    bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                    logger.info(f"🤖 Пользователь {user_id} использовал ИИ-планировщик для {target_communications} комм на {date_text}")
+                else:
+                    bot.reply_to(message, 
+                        "❌ Неверный формат! Используйте:\n"
+                        "Количество_коммуникаций Дата\n\n"
+                        "Пример: '100 2 сентября'",
+                        reply_markup=get_main_keyboard())
+                    logger.warning(f"❌ Пользователь {user_id} ввел неверный формат для ИИ-планировщика: {message.text}")
+                    return
+            except ValueError:
+                bot.reply_to(message, 
+                    "❌ Ошибка! Количество коммуникаций должно быть числом.\n\n"
+                    "Пример: '100 2 сентября'",
+                    reply_markup=get_main_keyboard())
+                logger.error(f"❌ Ошибка при использовании ИИ-планировщика пользователем {user_id}: неверное число")
+                return
+            except Exception as e:
+                bot.reply_to(message, 
+                    "❌ Ошибка при использовании ИИ-планировщика. Проверьте формат:\n"
+                    "Количество_коммуникаций Дата\n\n"
+                    "Пример: '100 2 сентября'",
+                    reply_markup=get_main_keyboard())
+                logger.error(f"❌ Ошибка при использовании ИИ-планировщика пользователем {user_id}: {e}")
+                return
+            finally:
+                del user_states[user_id]
+            
+        elif state == 'waiting_for_study_date':
+            # Шаг 1: Получили дату, теперь запрашиваем время
+            user_states[user_id] = f'waiting_for_study_time_{message.text}'
+            bot.reply_to(
+                message,
+                f"📚 **Шаг 2: Введите время**\n\n"
+                f"Дата: {message.text}\n\n"
+                f"Введите время в формате:\n"
+                f"• 09:00-10:30\n"
+                f"• 14:00-15:30\n"
+                f"• 16:00-17:00",
+                reply_markup=get_back_keyboard()
+            )
+            logger.info(f"📚 Пользователь {user_id} ввел дату для учебы: {message.text}")
+            
+        elif state.startswith('waiting_for_study_time_'):
+            # Шаг 2: Получили время, теперь запрашиваем название предмета
+            date_text = state.split('_', 3)[3]  # Извлекаем дату из состояния
+            user_states[user_id] = f'waiting_for_study_subject_{date_text}_{message.text}'
+            bot.reply_to(
+                message,
+                f"📚 **Шаг 3: Введите название предмета**\n\n"
+                f"Дата: {date_text}\n"
+                f"Время: {message.text}\n\n"
+                f"Введите название предмета и дополнительную информацию:\n"
+                f"• Математика, аудитория 101\n"
+                f"• Физика, лабораторная работа\n"
+                f"• Английский язык",
+                reply_markup=get_back_keyboard()
+            )
+            logger.info(f"📚 Пользователь {user_id} ввел время для учебы: {message.text}")
+            
+        elif state.startswith('waiting_for_study_subject_'):
+            # Шаг 3: Получили название предмета, добавляем событие
+            parts = state.split('_', 3)[3:]  # Извлекаем дату и время
+            if len(parts) >= 2:
+                date_text = parts[0]
+                time_text = parts[1]
+                subject = message.text
+                
+                result = schedule_manager.add_event(user_id, date_text, time_text, subject, "study")
+                bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                logger.info(f"📚 Пользователь {user_id} добавил учебное событие: {date_text} {time_text} {subject}")
+            else:
+                bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
+            
+            del user_states[user_id]
+            
+        elif state == 'waiting_for_work_date':
+            # Шаг 1: Получили дату, теперь запрашиваем время
+            user_states[user_id] = f'waiting_for_work_time_{message.text}'
+            bot.reply_to(
+                message,
+                f"💼 **Шаг 2: Введите время**\n\n"
+                f"Дата: {message.text}\n\n"
+                f"Введите время в формате:\n"
+                f"• 09:00-17:00\n"
+                f"• 14:00-18:00\n"
+                f"• 10:00-16:00",
+                reply_markup=get_back_keyboard()
+            )
+            logger.info(f"💼 Пользователь {user_id} ввел дату для работы: {message.text}")
+            
+        elif state.startswith('waiting_for_work_time_'):
+            # Шаг 2: Получили время, теперь запрашиваем описание работы
+            date_text = state.split('_', 3)[3]  # Извлекаем дату из состояния
+            user_states[user_id] = f'waiting_for_work_description_{date_text}_{message.text}'
+            bot.reply_to(
+                message,
+                f"💼 **Шаг 3: Введите описание работы**\n\n"
+                f"Дата: {date_text}\n"
+                f"Время: {message.text}\n\n"
+                f"Введите описание работы:\n"
+                f"• Поддержка клиентов Т-Мобайл\n"
+                f"• Обработка заявок\n"
+                f"• Консультации по тарифам",
+                reply_markup=get_back_keyboard()
+            )
+            logger.info(f"💼 Пользователь {user_id} ввел время для работы: {message.text}")
+            
+        elif state.startswith('waiting_for_work_description_'):
+            # Шаг 3: Получили описание работы, добавляем событие
+            parts = state.split('_', 3)[3:]  # Извлекаем дату и время
+            if len(parts) >= 2:
+                date_text = parts[0]
+                time_text = parts[1]
+                description = message.text
+                
+                result = schedule_manager.add_event(user_id, date_text, time_text, description, "work")
+                bot.reply_to(message, result, reply_markup=get_main_keyboard())
+                logger.info(f"💼 Пользователь {user_id} добавил рабочее событие: {date_text} {time_text} {description}")
+            else:
+                bot.reply_to(message, "❌ Ошибка! Попробуйте снова.", reply_markup=get_main_keyboard())
+            
+            del user_states[user_id]
+            
         else:
             del user_states[user_id]
             bot.reply_to(message, "❌ Неизвестное состояние. Попробуйте снова.", reply_markup=get_main_keyboard())
@@ -799,6 +1305,126 @@ def process_callback(call: CallbackQuery):
             reply_markup=get_back_keyboard()
         )
         logger.info(f"📈 Пользователь {user_id} запросил статистику")
+    
+    elif data == "add_work_session":
+        user_states[user_id] = 'waiting_for_work_session'
+        bot.edit_message_text(
+            "💼 **Добавление рабочей сессии**\n\n"
+            "Введите рабочую сессию в формате:\n"
+            "Дата Время Количество_коммуникаций\n\n"
+            "Примеры:\n"
+            "• 2 сентября 09:00-17:00 104\n"
+            "• 3 сентября 14:00-18:00 52\n"
+            "• 4 сентября 10:00-16:00 78\n\n"
+            "Бот автоматически рассчитает производительность!",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"💼 Пользователь {user_id} выбрал добавление рабочей сессии")
+    
+    elif data == "work_stats":
+        # Показываем меню выбора периода
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("📊 За декаду", callback_data="stats_decade"),
+            InlineKeyboardButton("📊 За месяц", callback_data="stats_month")
+        )
+        keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+        
+        bot.edit_message_text(
+            "📊 **Статистика работы**\n\n"
+            "Выберите период для анализа:",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=keyboard
+        )
+        logger.info(f"📊 Пользователь {user_id} выбрал статистику работы")
+    
+    elif data == "ai_planner":
+        user_states[user_id] = 'waiting_for_ai_plan'
+        bot.edit_message_text(
+            "🤖 **ИИ-планировщик работы**\n\n"
+            "Введите цель и дату в формате:\n"
+            "Количество_коммуникаций Дата\n\n"
+            "Примеры:\n"
+            "• 100 2 сентября\n"
+            "• 150 5 сентября\n"
+            "• 80 10 сентября\n\n"
+            "ИИ учтет ваше учебное расписание и предложит оптимальное рабочее время!",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"🤖 Пользователь {user_id} выбрал ИИ-планировщик")
+    
+    elif data == "smart_reminders":
+        # Показываем меню умных напоминаний
+        keyboard = InlineKeyboardMarkup(row_width=2)
+        keyboard.add(
+            InlineKeyboardButton("📚 Добавить учебу", callback_data="add_study_guided"),
+            InlineKeyboardButton("💼 Добавить работу", callback_data="add_work_guided")
+        )
+        keyboard.add(InlineKeyboardButton("⬅️ Назад", callback_data="back_to_main"))
+        
+        bot.edit_message_text(
+            "📚 **Умные напоминания**\n\n"
+            "Выберите тип расписания для пошагового добавления:",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=keyboard
+        )
+        logger.info(f"📚 Пользователь {user_id} выбрал умные напоминания")
+    
+    elif data == "stats_decade":
+        result = schedule_manager.get_work_statistics(user_id, "decade")
+        bot.edit_message_text(
+            result,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"📊 Пользователь {user_id} запросил статистику за декаду")
+    
+    elif data == "stats_month":
+        result = schedule_manager.get_work_statistics(user_id, "month")
+        bot.edit_message_text(
+            result,
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"📊 Пользователь {user_id} запросил статистику за месяц")
+    
+    elif data == "add_study_guided":
+        user_states[user_id] = 'waiting_for_study_date'
+        bot.edit_message_text(
+            "📚 **Пошаговое добавление учебы**\n\n"
+            "Шаг 1: Введите дату\n\n"
+            "Примеры:\n"
+            "• 2 сентября\n"
+            "• 15 октября\n"
+            "• 3 ноября",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"📚 Пользователь {user_id} начал пошаговое добавление учебы")
+    
+    elif data == "add_work_guided":
+        user_states[user_id] = 'waiting_for_work_date'
+        bot.edit_message_text(
+            "💼 **Пошаговое добавление работы**\n\n"
+            "Шаг 1: Введите дату\n\n"
+            "Примеры:\n"
+            "• 2 сентября\n"
+            "• 15 октября\n"
+            "• 3 ноября",
+            call.message.chat.id,
+            call.message.message_id,
+            reply_markup=get_back_keyboard()
+        )
+        logger.info(f"💼 Пользователь {user_id} начал пошаговое добавление работы")
     
     elif data == "analyze":
         analysis = schedule_manager.analyze_schedule(user_id)
