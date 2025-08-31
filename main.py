@@ -135,19 +135,33 @@ async def cmd_schedule_week(message: types.Message):
         logging.info(f"Вызываю get_schedule_for_week()...")
         logging.info(f"Получено расписание: {schedule}")
         
-        if schedule and any(lesson.get('subject') for lesson in schedule.values()):
+        # Проверяем, есть ли реальные уроки в расписании
+        has_lessons = False
+        for day_schedule in schedule.values():
+            if any(lesson.get('subject') for lesson in day_schedule.values()):
+                has_lessons = True
+                break
+        
+        if schedule and has_lessons:
             logging.info("Расписание найдено, форматирую сообщения...")
             messages = schedule_parser.format_week_schedule_messages(schedule)
             logging.info(f"Создано {len(messages)} сообщений")
+            logging.info(f"Содержимое сообщений: {messages}")
             
-            for i, msg in enumerate(messages, 1):
-                logging.info(f"Отправляю сообщение {i} из {len(messages)}")
-                await message.answer(msg, reply_markup=get_back_keyboard())
-                logging.info(f"Сообщение {i} отправлено")
-                
-                # Небольшая задержка между сообщениями
-                if i < len(messages):
-                    await asyncio.sleep(0.5)
+            if messages and len(messages) > 0:
+                for i, msg in enumerate(messages, 1):
+                    logging.info(f"Отправляю сообщение {i} из {len(messages)}")
+                    await message.answer(msg, reply_markup=get_back_keyboard())
+                    logging.info(f"Сообщение {i} отправлено")
+                    
+                    # Небольшая задержка между сообщениями
+                    if i < len(messages):
+                        await asyncio.sleep(0.5)
+            else:
+                await message.answer(
+                    "📅 Сообщения не сформированы. Возможно, проблема с форматированием.",
+                    reply_markup=get_back_keyboard()
+                )
         else:
             await message.answer(
                 "📅 Расписание на неделю не найдено или произошла ошибка при загрузке.",
@@ -231,16 +245,31 @@ async def process_callback(callback: types.CallbackQuery):
         elif callback.data == "schedule_week":
             schedule = schedule_parser.get_schedule_for_week()
             
-            if schedule and any(lesson.get('subject') for lesson in schedule.values()):
+            # Проверяем, есть ли реальные уроки в расписании
+            has_lessons = False
+            for day_schedule in schedule.values():
+                if any(lesson.get('subject') for lesson in day_schedule.values()):
+                    has_lessons = True
+                    break
+            
+            if schedule and has_lessons:
                 messages = schedule_parser.format_week_schedule_messages(schedule)
+                logging.info(f"Создано {len(messages)} сообщений для callback")
+                logging.info(f"Содержимое сообщений: {messages}")
                 
-                # Отправляем первое сообщение, редактируя текущее
-                await callback.message.edit_text(messages[0], reply_markup=get_back_keyboard())
-                
-                # Отправляем остальные сообщения как новые
-                for msg in messages[1:]:
-                    await callback.message.answer(msg, reply_markup=get_back_keyboard())
-                    await asyncio.sleep(0.5)
+                if messages and len(messages) > 0:
+                    # Отправляем первое сообщение, редактируя текущее
+                    await callback.message.edit_text(messages[0], reply_markup=get_back_keyboard())
+                    
+                    # Отправляем остальные сообщения как новые
+                    for msg in messages[1:]:
+                        await callback.message.answer(msg, reply_markup=get_back_keyboard())
+                        await asyncio.sleep(0.5)
+                else:
+                    await callback.message.edit_text(
+                        "📅 Сообщения не сформированы. Возможно, проблема с форматированием.",
+                        reply_markup=get_back_keyboard()
+                    )
             else:
                 await callback.message.edit_text(
                     "📅 Расписание на неделю не найдено или произошла ошибка при загрузке.",
